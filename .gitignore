@@ -4,6 +4,7 @@
 secrets.*
 config/*password*
 config/*secret*
+config/mysql-init.yaml
 config/mysql-init.*
 # local
 .DS_Store
