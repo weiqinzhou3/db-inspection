@@ -1,0 +1,9 @@
+# secrets
+*.secret
+*.secrets
+secrets.*
+config/*password*
+config/*secret*
+config/mysql-init.*
+# local
+.DS_Store
