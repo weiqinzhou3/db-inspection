@@ -19,3 +19,10 @@
 Run across all active MySQL assets (type=mysql, is_active=1, auth_mode=login_path) and load into meta DB:
 
 `OPS_META_LOGIN_PATH=ops_meta ./scripts/run_mysql_inspection.sh`
+
+## Analysis queries
+
+Run analysis SQL against the meta DB:
+
+- `mysql --login-path=ops_meta -D ops_inspection < sql/analysis.sql`
+- Or `OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/run_mysql_analysis.sh`

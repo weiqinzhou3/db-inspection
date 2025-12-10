@@ -28,7 +28,7 @@ success=0
 failed=0
 
 echo "[INIT] Ensure schema/tables exist via sql/ddl.sql"
-mysql --login-path="$OPS_META_LOGIN_PATH" < $root_dir/sql/ddl.sql
+mysql --login-path="$OPS_META_LOGIN_PATH" < "$root_dir/sql/ddl.sql"
 
 echo "[FETCH] Loading active MySQL assets from $OPS_META_DB.asset_instance"
 assets="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$OPS_META_DB" -e "
@@ -54,11 +54,12 @@ while IFS=$'\t' read -r instance_id login_path; do
 
   # Collect instance summary
   summary_out=""
-  if ! summary_out=$(mysql --login-path="$login_path" --batch --raw -N <<SQL 2>&1
-    SET @instance_id:=$instance_id;
-    SOURCE $root_dir/sql/collect/instance_logical_summary.sql
-SQL
-    );then
+  if ! summary_out="$(
+    {
+      printf 'SET @instance_id:=%s;\n' "$instance_id"
+      cat "$root_dir/sql/collect/instance_logical_summary.sql"
+    } | mysql --login-path="$login_path" --batch --raw -N 2>&1
+  )"; then
     instance_error="summary: $summary_out"
     stat_time="$(date '+%F %T')"
   else
@@ -76,11 +77,12 @@ SQL
   # Collect TopN only if summary succeeded
   topn_ok=true
   if [[ -z "$instance_error" ]]; then
-    if ! topn_out=$(mysql --login-path="$login_path" --batch --raw -N <<SQL 2>&1
-        SET @instance_id:=$instance_id;
-        SOURCE $root_dir/sql/collect/top20_tables.sql
-SQL
-      ); then
+    if ! topn_out="$(
+      {
+        printf 'SET @instance_id:=%s;\n' "$instance_id"
+        cat "$root_dir/sql/collect/top20_tables.sql"
+      } | mysql --login-path="$login_path" --batch --raw -N 2>&1
+    )"; then
       instance_error="topn: $topn_out"
       topn_ok=false
     elif [[ -n "$topn_out" ]]; then
