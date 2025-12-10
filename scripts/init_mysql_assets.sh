@@ -4,7 +4,6 @@ set -euo pipefail
 # Initialize MySQL assets into ops_inspection.asset_instance and create login-path entries.
 # Requirements:
 #   - mysql client and mysql_config_editor available
-#   - python3 with PyYAML (pip install pyyaml) to parse config/mysql-init.yaml
 #
 # Usage:
 #   OPS_META_LOGIN_PATH=ops_meta [OPS_META_DB=ops_inspection] [CONFIG_PATH=config/mysql-init.yaml] ./scripts/init_mysql_assets.sh
@@ -26,6 +25,7 @@ fi
 
 command -v mysql >/dev/null || { echo "mysql client not found in PATH" >&2; exit 1; }
 command -v mysql_config_editor >/dev/null || { echo "mysql_config_editor not found in PATH" >&2; exit 1; }
+command -v expect >/dev/null || { echo "expect not found in PATH (required for mysql_config_editor automation)" >&2; exit 1; }
 
 sql_escape() {
   # Escape single quotes for SQL literals
@@ -33,55 +33,107 @@ sql_escape() {
   printf "%s" "$s"
 }
 
-parse_yaml() {
-  python3 - "$CONFIG_PATH" <<'PY'
-import sys, json
-from pathlib import Path
-try:
-    import yaml  # type: ignore
-except ImportError:
-    sys.stderr.write("PyYAML is required. Install via: pip install pyyaml\n")
-    sys.exit(1)
-
-path = Path(sys.argv[1])
-data = yaml.safe_load(path.read_text())
-if not isinstance(data, list):
-    sys.stderr.write("Config must be a YAML list of asset objects\n")
-    sys.exit(1)
-
-allowed_env = {"MOS", "Purple", "RTM", "MIB2"}
-for idx, item in enumerate(data, 1):
-    if not isinstance(item, dict):
-        sys.stderr.write(f"Item #{idx} is not a mapping\n")
-        sys.exit(1)
-    for key in ("instance_name", "env", "host", "port", "username", "password"):
-        if not item.get(key):
-            sys.stderr.write(f"Missing required field '{key}' in item #{idx}\n")
-            sys.exit(1)
-    if item["env"] not in allowed_env:
-        sys.stderr.write(f"Invalid env '{item['env']}' in item #{idx}\n")
-        sys.exit(1)
-    fields = [
-        str(item.get("instance_name", "")),
-        str(item.get("alias_name", "")) if item.get("alias_name") is not None else "",
-        str(item.get("env", "")),
-        str(item.get("host", "")),
-        str(item.get("port", "")),
-        str(item.get("username", "")),
-        str(item.get("password", "")),
-        str(item.get("login_path", "")) if item.get("login_path") is not None else "",
-    ]
-    print("\t".join(fields))
-PY
+create_login_path() {
+  local lp="$1" host="$2" user="$3" port="$4" password="$5"
+  expect <<EOF
+log_user 0
+spawn mysql_config_editor set --login-path "$lp" --host "$host" --user "$user" --port "$port" --password --skip-warn
+expect {
+  -re ".*Enter password.*" { send "$password\r" }
+  timeout { exit 1 }
+}
+expect eof
+EOF
+  local rc=$?
+  if [[ $rc -ne 0 ]]; then
+    echo "[ERROR] mysql_config_editor failed for login_path=$lp host=$host port=$port user=$user" >&2
+  fi
+  return $rc
 }
 
-records="$(parse_yaml)"
+parse_yaml() {
+  local file="$1"
+  awk '
+  function trim(s) {
+    sub(/^[ \t\r\n]+/, "", s)
+    sub(/[ \t\r\n]+$/, "", s)
+    return s
+  }
+
+  function flush() {
+    if (record_started) {
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", inst, alias, env, host, port, user, pass, lp
+    }
+    inst = ""; alias = ""; env = ""; host = ""; port = ""; user = ""; pass = ""; lp = ""
+    record_started = 0
+  }
+
+  BEGIN {
+    inst = ""; alias = ""; env = ""; host = ""; port = ""; user = ""; pass = ""; lp = ""
+    record_started = 0
+  }
+
+  # 跳过注释行
+  /^[ \t]*#/ { next }
+
+  # 跳过空行
+  /^[ \t]*$/ { next }
+
+  {
+    line = $0
+
+    # 以 "-" 开头，表示新记录开始
+    if (line ~ /^[ \t]*-/) {
+      if (record_started) {
+        flush()
+      }
+      record_started = 1
+      sub(/^[ \t]*-[ \t]*/, "", line)
+    }
+
+    # 解析 key: value，只按第一个冒号分割
+    idx = index(line, ":")
+    if (idx > 0) {
+      key = substr(line, 1, idx - 1)
+      val = substr(line, idx + 1)
+      key = trim(key)
+      val = trim(val)
+
+      if (key == "instance_name")      inst  = val
+      else if (key == "alias_name")    alias = val
+      else if (key == "env")           env   = val
+      else if (key == "host")          host  = val
+      else if (key == "port")          port  = val
+      else if (key == "username")      user  = val
+      else if (key == "password")      pass  = val
+      else if (key == "login_path")    lp    = val
+    }
+  }
+
+  END {
+    if (record_started) {
+      flush()
+    }
+  }
+  ' "$file"
+}
+
+records="$(parse_yaml "$CONFIG_PATH")"
 
 echo "Starting MySQL asset initialization from $CONFIG_PATH"
 while IFS=$'\t' read -r instance_name alias_name env host port username password login_path; do
   if [[ -z "$instance_name" ]]; then
     continue
   fi
+  if [[ -z "$env" || -z "$host" || -z "$port" || -z "$username" ]]; then
+    echo "[SKIP] Missing required field for instance_name=$instance_name" >&2
+    continue
+  fi
+  case "$env" in
+    MOS|Purple|RTM|MIB2) ;;
+    *) echo "[SKIP] Invalid env=$env for instance_name=$instance_name" >&2; continue ;;
+  esac
+
   alias_sql="NULL"
   [[ -n "$alias_name" ]] && alias_sql="'$(sql_escape "$alias_name")'"
   username_sql="NULL"
@@ -100,7 +152,6 @@ LIMIT 1;
   if [[ -n "$existing_row" ]]; then
     IFS=$'\t' read -r instance_id existing_login_path <<<"$existing_row"
     echo "[SKIP] Exists instance_name=$instance_name env=$env host=$host port=$port (instance_id=$instance_id, login_path=${existing_login_path:-null})"
-    # Backfill login_path if missing and config provides one
     if [[ -z "$existing_login_path" ]]; then
       login_path_final="$login_path"
       if [[ -z "$login_path_final" ]]; then
@@ -138,7 +189,6 @@ SELECT LAST_INSERT_ID();
     existing_login_path="$login_path"
   fi
 
-  # Determine final login_path value
   login_path_final="$existing_login_path"
   if [[ -z "$login_path_final" ]]; then
     if [[ -n "$login_path" ]]; then
@@ -157,8 +207,11 @@ UPDATE asset_instance SET login_path='$(sql_escape "$login_path_final")' WHERE i
     continue
   fi
 
-  printf '%s\n' "$password" | mysql_config_editor set --login-path="$login_path_final" --host="$host" --user="$username" --port="$port" --password --skip-warn >/dev/null
-  echo "[LOGIN_PATH] mysql_config_editor set --login-path=$login_path_final (host=$host port=$port user=$username)"
+  if ! create_login_path "$login_path_final" "$host" "$username" "$port" "$password"; then
+    echo "[ERROR] Failed to create login_path=$login_path_final for instance_id=$instance_id" >&2
+  else
+    echo "[LOGIN_PATH] mysql_config_editor set --login-path=$login_path_final (host=$host port=$port user=$username)"
+  fi
 
 done <<< "$records"
 
