@@ -21,8 +21,16 @@ trap cleanup EXIT
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 # Collect from inspected instance (read-only)
-mysql --login-path="$TARGET_LOGIN_PATH" --batch --raw -N -e "SET @instance_id:=${INSTANCE_ID}; SOURCE $root_dir/sql/collect/instance_logical_summary.sql" > "$summary_tsv"
-mysql --login-path="$TARGET_LOGIN_PATH" --batch --raw -N -e "SET @instance_id:=${INSTANCE_ID}; SOURCE $root_dir/sql/collect/top20_tables.sql" > "$topn_tsv"
+mysql --login-path="$TARGET_LOGIN_PATH" --batch --raw -N -e <<SQL 2>&1
+  SET @instance_id:=$instance_id;
+  SOURCE $root_dir/sql/collect/instance_logical_summary.sql
+SQL
+> "$summary_tsv"
+mysql --login-path="$TARGET_LOGIN_PATH" --batch --raw -N -e <<SQL 2>&1
+  SET @instance_id:=$instance_id;
+  SOURCE $root_dir/sql/collect/top20_tables.sql
+SQL
+> "$topn_tsv"
 
 # Load instance summary into meta DB
 IFS=$'\t' read -r stat_time instance_id logical_data logical_index logical_total mysql_version < "$summary_tsv"

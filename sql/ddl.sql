@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS asset_instance (
   type ENUM('mysql', 'redis', 'mongodb') NOT NULL DEFAULT 'mysql',
   instance_name VARCHAR(25) NOT NULL,
   alias_name VARCHAR(25) NULL,
-  env ENUM('MOS', 'Purple', 'RTM', 'MIB2') NOT NULL,
+  env ENUM('MOS', 'Purple', 'RTM', 'MIB2', '') DEFAULT NULL,
   host VARCHAR(50) NOT NULL,
   port INT NOT NULL,
   auth_mode ENUM('login_path', 'local_secret', 'secret_ref', 'password') NOT NULL DEFAULT 'login_path',
