@@ -3,7 +3,7 @@
 ## MySQL asset initialization (login-path based)
 
 1) Create meta schema/tables:  
-`mysql --login-path=ops_meta -e "SOURCE sql/ddl.sql"`
+`mysql --login-path=ops_meta < sql/ddl.sql`
 
 2) Prepare config (not committed):  
 `cp config/mysql-init.yaml.example config/mysql-init.yaml` then fill fields. Password is only used locally to create `login_path`, never stored in DB.
