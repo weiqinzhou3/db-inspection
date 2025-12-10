@@ -53,134 +53,102 @@ EOF
 
 parse_yaml() {
   local file="$1"
-  awk '
-  function trim(s) {
-    sub(/^[ \t\r\n]+/, "", s)
-    sub(/[ \t\r\n]+$/, "", s)
-    return s
-  }
+  python3 - "$file" << 'PY'
+import sys
 
-  # 输出当前记录：用 key=value 的形式，空格分隔
-  function flush() {
-    if (!record_started) {
-      return
-    }
-    out = ""
-    for (k in fields) {
-      if (out != "") {
-        out = out " "
-      }
-      out = out k "=" fields[k]
-    }
-    if (out != "") {
-      print out
-    }
-    delete fields
-    record_started = 0
-  }
+path = sys.argv[1]
 
-  BEGIN {
-    record_started = 0
-    delete fields
-  }
+current = {}
 
-  # 跳过注释 / 空行 / 文档头 ---
-  /^[ \t]*#/   { next }
-  /^[ \t]*$/   { next }
-  /^[ \t]*---/ { next }
+def flush():
+    """
+    把 current 里的一条记录刷成一行 TSV：
+    instance_name, alias_name, env, host, port, username, password, login_path
+    - alias_name / env / port / login_path 支持缺省，按默认值处理
+    - host / username / password / instance_name 缺一就报错并跳过这条
+    """
+    global current
+    if not current:
+        return
 
-  {
-    line = $0
+    inst = (current.get("instance_name") or "").strip()
+    host = (current.get("host") or "").strip()
+    user = (current.get("username") or "").strip()
+    pwd  = (current.get("password") or "").strip()
 
-    # 以 "-" 开头：新记录开始
-    if (line ~ /^[ \t]*-[ \t]/) {
-      flush()
-      record_started = 1
-      sub(/^[ \t]*-[ \t]*/, "", line)
-    }
+    if not inst or not host or not user or not pwd:
+        sys.stderr.write(
+            f"[SKIP] Missing required field for instance_name={inst or '<unknown>'} "
+            f"(need instance_name/host/username/password)\n"
+        )
+        current = {}
+        return
 
-    idx = index(line, ":")
-    if (idx == 0) {
-      next
-    }
+    alias = (current.get("alias_name") or "").strip()
+    env   = (current.get("env") or "").strip()
+    port  = (current.get("port") or "").strip() or "3306"
+    lp    = (current.get("login_path") or "").strip()
 
-    key = substr(line, 1, idx - 1)
-    val = substr(line, idx + 1)
-    key = trim(key)
-    val = trim(val)
+    # 输出 8 列，alias/env/port/lp 可以是空，但列数固定
+    sys.stdout.write(
+        "\t".join([inst, alias, env, host, port, user, pwd, lp]) + "\n"
+    )
+    current = {}
 
-    if (key != "") {
-      fields[key] = val
-    }
-  }
+with open(path, encoding="utf-8") as f:
+    for raw in f:
+        line = raw.rstrip("\n")
+        s = line.strip()
 
-  END {
+        # 跳过注释 / 空行 / 文档头
+        if not s or s.startswith("#") or s == "---":
+            continue
+
+        # 新记录开始（形如 "- instance_name: xxx" 或 "- env: MOS"）
+        if s.startswith("- "):
+            # 先把上一条刷掉
+            flush()
+            s = s[2:].lstrip()  # 去掉 "- "
+
+        if ":" not in s:
+            continue
+
+        key, val = s.split(":", 1)
+        key = key.strip()
+        val = val.strip()
+
+        if not key:
+            continue
+
+        # 普通 key: value 存到 current
+        current[key] = val
+
+    # 文件结束再刷一次
     flush()
-  }
-  ' "$file"
+PY
 }
 
 records="$(parse_yaml "$CONFIG_PATH")"
 
 echo "Starting MySQL asset initialization from $CONFIG_PATH"
-while IFS= read -r line; do
-  # 先清空所有字段
-  instance_name=""
-  alias_name=""
-  env=""
-  host=""
-  port=""
-  username=""
-  password=""
-  login_path=""
-
-  # 按 key=value 解析这一行
-  for kv in $line; do
-    key="${kv%%=*}"
-    val="${kv#*=}"
-    case "$key" in
-      instance_name) instance_name="$val" ;;
-      alias_name)    alias_name="$val" ;;
-      env)           env="$val" ;;
-      host)          host="$val" ;;
-      port)          port="$val" ;;
-      username)      username="$val" ;;
-      password)      password="$val" ;;
-      login_path)    login_path="$val" ;;
-    esac
-  done
-
-  # 没有 instance_name，直接跳过
+while IFS=$'\t' read -r instance_name alias_name env host port username password login_path; do
+  echo "DEBUG row: inst=[$instance_name] alias=[$alias_name] env=[$env] host=[$host] port=[$port] user=[$username]" >&2
   if [[ -z "$instance_name" ]]; then
     continue
   fi
-
-  # 默认值逻辑（这就是你说的语义）
-  [[ -z "$port" ]] && port=3306          # port 不写 -> 3306
-  # env 不写 -> 空（已经是 ""，不用额外处理）
-  # alias_name / login_path 不写 -> 空（上面已经初始化为 ""）
-
-  # 必须字段检查：你说清楚的那几个
-  if [[ -z "$host" || -z "$username" || -z "$password" ]]; then
-    echo "[SKIP] Missing required field for instance_name=$instance_name (need host/username/password)" >&2
+  if [[ -z "$env" || -z "$host" || -z "$port" || -z "$username" ]]; then
+    echo "[SKIP] Missing required field for instance_name=$instance_name" >&2
     continue
   fi
-
-  # env 校验：允许为空，或者在固定集合里
   case "$env" in
-    ""|MOS|Purple|RTM|MIB2) ;;
-    *)
-      echo "[SKIP] Invalid env=$env for instance_name=$instance_name" >&2
-      continue
-      ;;
+    MOS|Purple|RTM|MIB2) ;;
+    *) echo "[SKIP] Invalid env=$env for instance_name=$instance_name" >&2; continue ;;
   esac
 
   alias_sql="NULL"
   [[ -n "$alias_name" ]] && alias_sql="'$(sql_escape "$alias_name")'"
-
   username_sql="NULL"
   [[ -n "$username" ]] && username_sql="'$(sql_escape "$username")'"
-
   login_path_sql="NULL"
   [[ -n "$login_path" ]] && login_path_sql="'$(sql_escape "$login_path")'"
 
@@ -201,7 +169,8 @@ LIMIT 1;
         login_path_final="${instance_name}"
       fi
       mysql --login-path="$OPS_META_LOGIN_PATH" -D "$OPS_META_DB" -e "
-UPDATE asset_instance SET login_path='$(sql_escape "$login_path_final")'
+UPDATE asset_instance
+SET login_path='$(sql_escape "$login_path_final")'
 WHERE instance_id=$instance_id;
 "
       existing_login_path="$login_path_final"
@@ -236,7 +205,7 @@ SELECT LAST_INSERT_ID();
     if [[ -n "$login_path" ]]; then
       login_path_final="$login_path"
     else
-      login_path_final="${instance_name}"
+      login_path_final="i${instance_id}"
       mysql --login-path="$OPS_META_LOGIN_PATH" -D "$OPS_META_DB" -e "
 UPDATE asset_instance SET login_path='$(sql_escape "$login_path_final")' WHERE instance_id=$instance_id;
 "
