@@ -14,16 +14,17 @@ mkdir -p "${OUT_DIR}"
 
 MAIL_HTML="${OUT_DIR}/mail.html"
 
-# 收件人 / 发件人配置
+# 收件人 / 发件人配置（允许通过环境变量覆盖）
 EMAIL_RECIVER="${EMAIL_RECIVER:-zhouqinwei@bsgchina.com}"
 EMAIL_SENDER="${EMAIL_SENDER:-zhouqinwei_01@qq.com}"
-EMAIL_USERNAME="${EMAIL_SENDER}"
+# QQ 邮箱通常可以用完整邮箱做用户名，如果你需要纯数字 ID，可以自己改
+EMAIL_USERNAME="${EMAIL_USERNAME:-${EMAIL_SENDER}}"
 
-# 邮箱密码（建议改用环境变量 EMAIL_PASSWORD 覆盖）
+# 邮箱密码（建议用环境变量 EMAIL_PASSWORD 覆盖）
 EMAIL_PASSWORD="${EMAIL_PASSWORD:-owkaajnsspehbigb}"
 
 # smtp 服务器地址
-EMAIL_SMTPHOST="${EMAIL_SMTPHOST:=smtp.qq.com}"
+EMAIL_SMTPHOST="${EMAIL_SMTPHOST:-smtp.qq.com}"
 SMTP_SERVER="${EMAIL_SMTPHOST}:587"
 
 EMAIL_TITLE="[Report] MySQL Inspection Summary"
@@ -93,7 +94,7 @@ html_table_from_tsv() {
   echo "<table border=\"2\" style=\"border-collapse:collapse;\" cellpadding=\"6\" cellspacing=\"1\">"
 
   local line_no=0
-  local -a header
+  local -a header cols
 
   while IFS=$'\t' read -r -a cols; do
     if [ $line_no -eq 0 ]; then
@@ -115,13 +116,19 @@ html_table_from_tsv() {
       local idx
       for idx in "${!header[@]}"; do
         local col_name="${header[$idx]}"
-        local cell="${cols[$idx]}"
+        local cell=""
+        # 防止 cols 比 header 短时访问越界
+        if (( idx < ${#cols[@]} )); then
+          cell="${cols[$idx]}"
+        else
+          cell=""
+        fi
         local esc_cell
         esc_cell=$(html_escape "$cell")
 
         # 异常高亮逻辑：
         # 1) *_fmt 且值以 + / - 开头 → 红+粗
-        # 2) 包含 "status" 的列且值 != ok → 红+粗
+        # 2) 包含 "status" 的列，如果值 != ok → 红+粗
         if [[ "$col_name" == *_fmt ]] && [[ "$cell" == [+-]* ]]; then
           printf '<td><font color="red"><b>%s</b></font></td>' "$esc_cell"
         elif [[ "$col_name" == *status* ]] && [[ -n "$cell" && "$cell" != "ok" ]]; then
@@ -163,13 +170,11 @@ send_mail() {
     -u "$EMAIL_TITLE" \
     -xu "$EMAIL_USERNAME" \
     -xp "$EMAIL_PASSWORD" \
+    -m "$EMAIL_CONTENT" \
     -o tls=yes \
     -o message-charset=utf-8 \
-    -o message-content-type=html \
-    < "$EMAIL_CONTENT"
-  }
-
-
+    -o message-content-type=html
+}
 
 # ========== 4. 主流程 ==========
 
@@ -191,4 +196,3 @@ MAIN() {
 }
 
 MAIN
-
