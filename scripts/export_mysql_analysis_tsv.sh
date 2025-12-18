@@ -1,10 +1,29 @@
--- 兼容 MySQL 5.7/8.0，满足 ONLY_FULL_GROUP_BY；被巡检实例与 meta 库均可为 5.7/8.0
+#!/usr/bin/env bash
+set -euo pipefail
 
--- =========================================================
--- Q1: 巡检失败实例明细（最近一次采集失败）
--- 输出字段：env、alias_name、instance_name、host、port、last_stat_time、logical_total_bytes、logical_total_gb、mysql_version、last_collect_status、error_msg
--- =========================================================
-SELECT
+# Export Q1~Q6 analysis results to TSV files.
+# Usage:
+#   OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/export_mysql_analysis_tsv.sh
+
+OPS_META_LOGIN_PATH="${OPS_META_LOGIN_PATH:-}"
+OPS_META_DB="${OPS_META_DB:-ops_inspection}"
+
+if [[ -z "$OPS_META_LOGIN_PATH" ]]; then
+  echo "OPS_META_LOGIN_PATH is required (mysql_config_editor login-path for meta DB)" >&2
+  exit 1
+fi
+
+command -v mysql >/dev/null || { echo "mysql client not found in PATH" >&2; exit 1; }
+
+projectDir=$(cd "$(dirname "$0")/.." && pwd)
+OUT_DIR="${OPS_TSV_OUTDIR:-${projectDir}/out/mysql_analysis}"
+mkdir -p "${OUT_DIR}"
+
+# Q1: 巡检失败实例明细（最近一次采集失败）
+mysql --login-path="$OPS_META_LOGIN_PATH" \
+  -D "$OPS_META_DB" \
+  --batch --raw \
+  -e "SELECT
   a.env,
   a.alias_name,
   a.instance_name,
@@ -27,13 +46,16 @@ JOIN ops_inspection.asset_instance a
   ON CAST(a.instance_id AS CHAR) = s.instance_id
 WHERE a.is_active = 1
   AND (s.collect_status <> 'ok' OR (s.error_msg IS NOT NULL AND s.error_msg <> ''))
-ORDER BY s.stat_time DESC, a.env, a.instance_name;
+ORDER BY s.stat_time DESC, a.env, a.instance_name;" \
+  > "${OUT_DIR}/q1_failed_instances.tsv"
 
--- =========================================================
--- Q2: 按 env 汇总容量（最近一次 vs 上一次）
--- 输出字段：env、instance_count、last_env_total_bytes、last_env_total_gb、prev_env_total_bytes、prev_env_total_gb、diff_env_total_bytes、diff_env_total_gb、diff_env_total_gb_fmt
--- =========================================================
-SELECT
+echo "exported Q1 to ${OUT_DIR}/q1_failed_instances.tsv"
+
+# Q2: 按 env 汇总容量（最近一次 vs 上一次）
+mysql --login-path="$OPS_META_LOGIN_PATH" \
+  -D "$OPS_META_DB" \
+  --batch --raw \
+  -e "SELECT
   inst.env,
   COUNT(DISTINCT inst.instance_id) AS instance_count,
   SUM(inst.last_total_bytes) AS last_env_total_bytes,
@@ -80,13 +102,16 @@ FROM (
   WHERE a.is_active = 1
 ) inst
 GROUP BY inst.env
-ORDER BY diff_env_total_bytes DESC, last_env_total_bytes DESC;
+ORDER BY diff_env_total_bytes DESC, last_env_total_bytes DESC;" \
+  > "${OUT_DIR}/q2_env_summary.tsv"
 
--- =========================================================
--- Q3: 实例容量差异 Top20（按 diff 绝对值排序）
--- 输出字段：env、alias_name、instance_name、host、port、last_stat_time、last_total_bytes、last_total_gb、prev_stat_time、prev_total_bytes、prev_total_gb、diff_bytes、diff_gb、diff_gb_fmt
--- =========================================================
-SELECT
+echo "exported Q2 to ${OUT_DIR}/q2_env_summary.tsv"
+
+# Q3: 实例容量差异 Top20（按 diff 绝对值排序）
+mysql --login-path="$OPS_META_LOGIN_PATH" \
+  -D "$OPS_META_DB" \
+  --batch --raw \
+  -e "SELECT
   a.env,
   a.alias_name,
   a.instance_name,
@@ -132,13 +157,16 @@ JOIN ops_inspection.asset_instance a
   ON CAST(a.instance_id AS CHAR) = last_time.instance_id
 WHERE a.is_active = 1
 ORDER BY ABS(last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) DESC
-LIMIT 20;
+LIMIT 20;" \
+  > "${OUT_DIR}/q3_instance_diff_top20.tsv"
 
--- =========================================================
--- Q4: 所有实例最新 vs 上一次容量明细
--- 输出字段：env、alias_name、instance_name、host、port、last_stat_time、prev_stat_time、last_total_bytes、last_total_gb、prev_total_bytes、prev_total_gb、diff_bytes、diff_gb、diff_gb_fmt
--- =========================================================
-SELECT
+echo "exported Q3 to ${OUT_DIR}/q3_instance_diff_top20.tsv"
+
+# Q4: 所有实例最新 vs 上一次容量明细
+mysql --login-path="$OPS_META_LOGIN_PATH" \
+  -D "$OPS_META_DB" \
+  --batch --raw \
+  -e "SELECT
   a.env,
   a.alias_name,
   a.instance_name,
@@ -183,13 +211,16 @@ LEFT JOIN ops_inspection.snap_mysql_instance_storage prev_rec
 JOIN ops_inspection.asset_instance a
   ON CAST(a.instance_id AS CHAR) = last_time.instance_id
 WHERE a.is_active = 1
-ORDER BY diff_bytes DESC, a.env, a.instance_name;
+ORDER BY diff_bytes DESC, a.env, a.instance_name;" \
+  > "${OUT_DIR}/q4_instance_last_vs_prev.tsv"
 
--- =========================================================
--- Q5: 实例最新容量快照总览
--- 输出字段：env、alias_name、instance_name、host、port、last_stat_time、logical_data_bytes、logical_index_bytes、logical_total_bytes、logical_total_gb、mysql_version、last_collect_status
--- =========================================================
-SELECT
+echo "exported Q4 to ${OUT_DIR}/q4_instance_last_vs_prev.tsv"
+
+# Q5: 实例最新容量快照总览
+mysql --login-path="$OPS_META_LOGIN_PATH" \
+  -D "$OPS_META_DB" \
+  --batch --raw \
+  -e "SELECT
   a.env,
   a.alias_name,
   a.instance_name,
@@ -212,13 +243,16 @@ JOIN (
 JOIN ops_inspection.asset_instance a
   ON CAST(a.instance_id AS CHAR) = s.instance_id
 WHERE a.is_active = 1
-ORDER BY s.logical_total_bytes DESC, a.env, a.instance_name;
+ORDER BY s.logical_total_bytes DESC, a.env, a.instance_name;" \
+  > "${OUT_DIR}/q5_instance_latest_capacity.tsv"
 
--- =========================================================
--- Q6: Top20 大表最新 vs 上一次排名变化（每实例）
--- 输出字段：env、alias_name、instance_name、schema_name、table_name、last_total_bytes、last_total_gb、last_rank_no、prev_total_bytes、prev_total_gb、prev_rank_no、rank_delta、rank_delta_fmt
--- =========================================================
-SELECT
+echo "exported Q5 to ${OUT_DIR}/q5_instance_latest_capacity.tsv"
+
+# Q6: Top20 大表最新 vs 上一次排名变化（每实例）
+mysql --login-path="$OPS_META_LOGIN_PATH" \
+  -D "$OPS_META_DB" \
+  --batch --raw \
+  -e "SELECT
   a.env,
   a.alias_name,
   a.instance_name,
@@ -264,4 +298,7 @@ LEFT JOIN ops_inspection.snap_mysql_table_topn t_prev
 JOIN ops_inspection.asset_instance a
   ON CAST(a.instance_id AS CHAR) = t_last.instance_id
 WHERE a.is_active = 1
-ORDER BY a.env, a.instance_name, t_last.rank_no ASC;
+ORDER BY a.env, a.instance_name, t_last.rank_no ASC;" \
+  > "${OUT_DIR}/q6_table_top20_rank_change.tsv"
+
+echo "exported Q6 to ${OUT_DIR}/q6_table_top20_rank_change.tsv"
