@@ -15,9 +15,9 @@ mkdir -p "${OUT_DIR}"
 MAIL_HTML="${OUT_DIR}/mail.html"
 
 # 收件人 / 发件人配置
-EMAIL_RECIVER="zhouqinwei@bsgchina.com"
-EMAIL_SENDER="zhouqinwei_01@qq.com"
-EMAIL_USERNAME="344863723"
+EMAIL_RECIVER="${EMAIL_RECIVER:-zhouqinwei@bsgchina.com}"
+EMAIL_SENDER="${EMAIL_SENDER:-zhouqinwei_01@qq.com}"
+EMAIL_USERNAME="${EMAIL_USERNAME:-344863723}"
 
 # 邮箱密码（建议改用环境变量 EMAIL_PASSWORD 覆盖）
 EMAIL_PASSWORD="${EMAIL_PASSWORD:-xgsjsidlrbimcbeg}"
