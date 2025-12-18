@@ -100,7 +100,7 @@ html_table_from_tsv() {
     if [ $line_no -eq 0 ]; then
       # 表头行
       header=("${cols[@]}")
-      echo "<tr>"
+      echo '<tr style="background-color:#f2f2f2;font-weight:bold;color:#000000;">'
       for col in "${header[@]}"; do
         printf '<th>%s</th>' "$(html_escape "$col")"
       done
@@ -152,7 +152,7 @@ append_section() {
   local desc="$1"
   local tsv_file="$2"
 
-  echo "    <p>${desc}</p>" >> "${MAIL_HTML}"
+  echo "    <p><b>${desc}</b></p>" >> "${MAIL_HTML}"
   html_table_from_tsv "${tsv_file}" >> "${MAIL_HTML}"
   echo "    <br/>" >> "${MAIL_HTML}"
 }

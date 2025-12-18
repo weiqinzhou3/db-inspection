@@ -24,13 +24,15 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   -D "$OPS_META_DB" \
   --batch --raw \
   -e "SELECT
-  a.env,
+  CASE
+    WHEN a.env IS NULL OR a.env = '' THEN '-'
+    ELSE a.env
+  END AS env,
   a.alias_name,
   a.instance_name,
   a.host,
   a.port,
   s.stat_time AS last_stat_time,
-  s.logical_total_bytes,
   ROUND(s.logical_total_bytes / POW(1024, 3), 2) AS logical_total_gb,
   s.mysql_version,
   s.collect_status AS last_collect_status,
@@ -56,13 +58,13 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   -D "$OPS_META_DB" \
   --batch --raw \
   -e "SELECT
-  inst.env,
+  CASE
+    WHEN inst.env_raw IS NULL OR inst.env_raw = '' THEN '-'
+    ELSE inst.env_raw
+  END AS env,
   COUNT(DISTINCT inst.instance_id) AS instance_count,
-  SUM(inst.last_total_bytes) AS last_env_total_bytes,
   ROUND(SUM(inst.last_total_bytes) / POW(1024, 3), 2) AS last_env_total_gb,
-  SUM(inst.prev_total_bytes) AS prev_env_total_bytes,
   ROUND(SUM(inst.prev_total_bytes) / POW(1024, 3), 2) AS prev_env_total_gb,
-  SUM(inst.diff_bytes) AS diff_env_total_bytes,
   ROUND(SUM(inst.diff_bytes) / POW(1024, 3), 2) AS diff_env_total_gb,
   CASE
     WHEN SUM(inst.diff_bytes) > 0 THEN CONCAT('+', ROUND(SUM(inst.diff_bytes) / POW(1024, 3), 2))
@@ -71,7 +73,7 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   END AS diff_env_total_gb_fmt
 FROM (
   SELECT
-    a.env,
+    a.env AS env_raw,
     a.instance_id,
     last_rec.logical_total_bytes AS last_total_bytes,
     IFNULL(prev_rec.logical_total_bytes, 0) AS prev_total_bytes,
@@ -101,8 +103,12 @@ FROM (
     ON CAST(a.instance_id AS CHAR) = last_time.instance_id
   WHERE a.is_active = 1
 ) inst
-GROUP BY inst.env
-ORDER BY diff_env_total_bytes DESC, last_env_total_bytes DESC;" \
+GROUP BY
+  CASE
+    WHEN inst.env_raw IS NULL OR inst.env_raw = '' THEN '-'
+    ELSE inst.env_raw
+  END
+ORDER BY diff_env_total_gb DESC, last_env_total_gb DESC;" \
   > "${OUT_DIR}/q2_env_summary.tsv"
 
 echo "exported Q2 to ${OUT_DIR}/q2_env_summary.tsv"
@@ -112,18 +118,18 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   -D "$OPS_META_DB" \
   --batch --raw \
   -e "SELECT
-  a.env,
+  CASE
+    WHEN a.env IS NULL OR a.env = '' THEN '-'
+    ELSE a.env
+  END AS env,
   a.alias_name,
   a.instance_name,
   a.host,
   a.port,
   last_rec.stat_time AS last_stat_time,
-  last_rec.logical_total_bytes AS last_total_bytes,
   ROUND(last_rec.logical_total_bytes / POW(1024, 3), 2) AS last_total_gb,
   prev_rec.stat_time AS prev_stat_time,
-  prev_rec.logical_total_bytes AS prev_total_bytes,
   ROUND(prev_rec.logical_total_bytes / POW(1024, 3), 2) AS prev_total_gb,
-  (last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) AS diff_bytes,
   ROUND((last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) / POW(1024, 3), 2) AS diff_gb,
   CASE
     WHEN (last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) > 0 THEN
@@ -167,18 +173,18 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   -D "$OPS_META_DB" \
   --batch --raw \
   -e "SELECT
-  a.env,
+  CASE
+    WHEN a.env IS NULL OR a.env = '' THEN '-'
+    ELSE a.env
+  END AS env,
   a.alias_name,
   a.instance_name,
   a.host,
   a.port,
   last_rec.stat_time AS last_stat_time,
   prev_rec.stat_time AS prev_stat_time,
-  last_rec.logical_total_bytes AS last_total_bytes,
   ROUND(last_rec.logical_total_bytes / POW(1024, 3), 2) AS last_total_gb,
-  prev_rec.logical_total_bytes AS prev_total_bytes,
   ROUND(prev_rec.logical_total_bytes / POW(1024, 3), 2) AS prev_total_gb,
-  (last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) AS diff_bytes,
   ROUND((last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) / POW(1024, 3), 2) AS diff_gb,
   CASE
     WHEN (last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) > 0 THEN
@@ -211,7 +217,7 @@ LEFT JOIN ops_inspection.snap_mysql_instance_storage prev_rec
 JOIN ops_inspection.asset_instance a
   ON CAST(a.instance_id AS CHAR) = last_time.instance_id
 WHERE a.is_active = 1
-ORDER BY diff_bytes DESC, a.env, a.instance_name;" \
+ORDER BY diff_gb DESC, a.env, a.instance_name;" \
   > "${OUT_DIR}/q4_instance_last_vs_prev.tsv"
 
 echo "exported Q4 to ${OUT_DIR}/q4_instance_last_vs_prev.tsv"
@@ -221,15 +227,17 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   -D "$OPS_META_DB" \
   --batch --raw \
   -e "SELECT
-  a.env,
+  CASE
+    WHEN a.env IS NULL OR a.env = '' THEN '-'
+    ELSE a.env
+  END AS env,
   a.alias_name,
   a.instance_name,
   a.host,
   a.port,
   s.stat_time AS last_stat_time,
-  s.logical_data_bytes,
-  s.logical_index_bytes,
-  s.logical_total_bytes,
+  ROUND(s.logical_data_bytes / POW(1024, 3), 2) AS logical_data_gb,
+  ROUND(s.logical_index_bytes / POW(1024, 3), 2) AS logical_index_gb,
   ROUND(s.logical_total_bytes / POW(1024, 3), 2) AS logical_total_gb,
   s.mysql_version,
   s.collect_status AS last_collect_status
@@ -253,15 +261,16 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   -D "$OPS_META_DB" \
   --batch --raw \
   -e "SELECT
-  a.env,
+  CASE
+    WHEN a.env IS NULL OR a.env = '' THEN '-'
+    ELSE a.env
+  END AS env,
   a.alias_name,
   a.instance_name,
   t_last.schema_name,
   t_last.table_name,
-  t_last.total_bytes AS last_total_bytes,
   ROUND(t_last.total_bytes / POW(1024, 3), 2) AS last_total_gb,
   t_last.rank_no AS last_rank_no,
-  t_prev.total_bytes AS prev_total_bytes,
   ROUND(t_prev.total_bytes / POW(1024, 3), 2) AS prev_total_gb,
   t_prev.rank_no AS prev_rank_no,
   (t_prev.rank_no - t_last.rank_no) AS rank_delta,

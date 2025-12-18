@@ -89,16 +89,40 @@ parse_yaml() {
   /^[ \t]*$/   { next }
   /^[ \t]*---/ { next }
 
-  {
+  # 识别列表项开头：例如 "- type: mysql" 或 "- instance_name: xxx"
+  /^[ \t]*-[ \t]*/ {
+    # 新的一条记录开始，先把上一条 flush
+    flush()
     line = $0
-
-    # 以 "-" 开头：新记录开始
-    if (line ~ /^[ \t]*-[ \t]/) {
-      flush()
+    sub(/^[ \t]*-[ \t]*/, "", line)
+    line = trim(line)
+    if (line == "") {
       record_started = 1
-      sub(/^[ \t]*-[ \t]*/, "", line)
+      next
     }
+    # 如果这一行本身带 key: val，则继续按 key: val 解析
+    idx = index(line, ":")
+    if (idx > 0) {
+      key = substr(line, 1, idx - 1)
+      val = substr(line, idx + 1)
+      key = trim(key)
+      val = trim(val)
+      fields[key] = val
+      record_started = 1
+    }
+    next
+  }
 
+  # 普通的 key: val 行
+  {
+    # 如果之前还没有开始记录，则表明这是第一条记录（没有 - 开头）
+    if (!record_started) {
+      record_started = 1
+    }
+    line = $0
+    # 去掉行首缩进
+    sub(/^[ \t]+/, "", line)
+    # 若找不到冒号，直接跳过（例如多行字符串的情况，这里我们不做处理）
     idx = index(line, ":")
     if (idx == 0) {
       next
@@ -155,12 +179,12 @@ while IFS= read -r line; do
     continue
   fi
 
-  # 默认值逻辑（这就是你说的语义）
+  # 默认值逻辑
   [[ -z "$port" ]] && port=3306          # port 不写 -> 3306
-  # env 不写 -> 空（已经是 ""，不用额外处理）
+  # env 不写 -> NULL（变量为 ""，插入时写入 NULL）
   # alias_name / login_path 不写 -> 空（上面已经初始化为 ""）
 
-  # 必须字段检查：你说清楚的那几个
+  # 必须字段检查
   if [[ -z "$host" || -z "$username" || -z "$password" ]]; then
     echo "[SKIP] Missing required field for instance_name=$instance_name (need host/username/password)" >&2
     continue
@@ -184,9 +208,23 @@ while IFS= read -r line; do
   login_path_sql="NULL"
   [[ -n "$login_path" ]] && login_path_sql="'$(sql_escape "$login_path")'"
 
+  # env 为空时，插入 NULL；非空时插入具体枚举值
+  env_sql="NULL"
+  [[ -n "$env" ]] && env_sql="'$(sql_escape "$env")'"
+
+  # 根据 env 是否为空构造查询条件（空 -> IS NULL）
+  if [[ -z "$env" ]]; then
+    env_condition="env IS NULL"
+  else
+    env_condition="env='$(sql_escape "$env")'"
+  fi
+
   existing_row="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$OPS_META_DB" -e "
 SELECT instance_id, COALESCE(login_path,'') FROM asset_instance
-WHERE type='mysql' AND env='$(sql_escape "$env")' AND host='$(sql_escape "$host")' AND port=$port AND instance_name='$(sql_escape "$instance_name")'
+WHERE type='mysql' AND ${env_condition}
+  AND host='$(sql_escape "$host")'
+  AND port=$port
+  AND instance_name='$(sql_escape "$instance_name")'
 LIMIT 1;
 ")"
 
@@ -194,7 +232,7 @@ LIMIT 1;
   existing_login_path=""
   if [[ -n "$existing_row" ]]; then
     IFS=$'\t' read -r instance_id existing_login_path <<<"$existing_row"
-    echo "[SKIP] Exists instance_name=$instance_name env=$env host=$host port=$port (instance_id=$instance_id, login_path=${existing_login_path:-null})"
+    echo "[SKIP] Exists instance_name=$instance_name env=${env:-null} host=$host port=$port (instance_id=$instance_id, login_path=${existing_login_path:-null})"
     if [[ -z "$existing_login_path" ]]; then
       login_path_final="$login_path"
       if [[ -z "$login_path_final" ]]; then
@@ -214,7 +252,7 @@ INSERT INTO asset_instance(
 ) VALUES (
   '$(sql_escape "$instance_name")',
   $alias_sql,
-  '$(sql_escape "$env")',
+  $env_sql,
   '$(sql_escape "$host")',
   $port,
   $username_sql,
@@ -222,27 +260,30 @@ INSERT INTO asset_instance(
 );
 SELECT LAST_INSERT_ID();
 "
-    instance_id="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$OPS_META_DB" -e "$insert_sql")"
-    if [[ -z "$instance_id" ]]; then
-      echo "[ERROR] Failed to insert asset for $instance_name" >&2
-      exit 1
-    fi
+    new_id="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$OPS_META_DB" -e "$insert_sql")"
+    instance_id="$new_id"
     echo "[NEW] Inserted instance_name=$instance_name env=$env host=$host port=$port -> instance_id=$instance_id"
-    existing_login_path="$login_path"
   fi
 
-  login_path_final="$existing_login_path"
+  # 处理 mysql_config_editor login-path
+  login_path_final="$login_path"
   if [[ -z "$login_path_final" ]]; then
-    if [[ -n "$login_path" ]]; then
-      login_path_final="$login_path"
+    if [[ -n "$existing_login_path" ]]; then
+      login_path_final="$existing_login_path"
     else
       login_path_final="${instance_name}"
-      mysql --login-path="$OPS_META_LOGIN_PATH" -D "$OPS_META_DB" -e "
-UPDATE asset_instance SET login_path='$(sql_escape "$login_path_final")' WHERE instance_id=$instance_id;
-"
-      echo "[UPDATE] Generated login_path=$login_path_final for instance_id=$instance_id"
     fi
   fi
+
+  records_for_login_path+="$instance_id $host $port $username $password $login_path_final"$'\n'
+
+done <<< "$records"
+
+# 为所有需要的实例创建 login-path
+echo "Creating mysql_config_editor login-path entries..."
+while IFS= read -r row; do
+  [[ -z "$row" ]] && continue
+  read -r instance_id host port username password login_path_final <<<"$row"
 
   if [[ -z "$password" ]]; then
     echo "[WARN] Missing password for instance_id=$instance_id; skipping mysql_config_editor" >&2

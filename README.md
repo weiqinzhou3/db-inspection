@@ -30,7 +30,7 @@ Run across all active MySQL assets (type=mysql, is_active=1, auth_mode=login_pat
 - Q5: Latest capacity overview per instance
 - Q6: Top20 tables rank change (latest vs previous round)
 
-Fields like `diff_*_fmt` and `rank_delta_fmt` are designed for report/email highlighting.
+All capacity numbers in Q1~Q6 are output in GB (rounded to 2 decimals). Fields like `diff_*_fmt` and `rank_delta_fmt` are designed for report/email highlighting.
 
 Run analysis SQL against the meta DB:
 
@@ -39,7 +39,7 @@ Run analysis SQL against the meta DB:
 
 ## Export analysis TSV
 
-Export Q1~Q6 results to `out/mysql_analysis/q*.tsv` for downstream reporting:
+Export Q1~Q6 results to `out/mysql_analysis/q*.tsv` for downstream reporting (capacity values in GB):
 
 - `OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/export_mysql_analysis_tsv.sh`
 
