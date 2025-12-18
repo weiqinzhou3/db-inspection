@@ -17,16 +17,16 @@ MAIL_HTML="${OUT_DIR}/mail.html"
 # 收件人 / 发件人配置
 EMAIL_RECIVER="${EMAIL_RECIVER:-zhouqinwei@bsgchina.com}"
 EMAIL_SENDER="${EMAIL_SENDER:-zhouqinwei_01@qq.com}"
-EMAIL_USERNAME="${EMAIL_USERNAME:-344863723}"
+EMAIL_USERNAME="${EMAIL_SENDER}"
 
 # 邮箱密码（建议改用环境变量 EMAIL_PASSWORD 覆盖）
-EMAIL_PASSWORD="${EMAIL_PASSWORD:-xgsjsidlrbimcbeg}"
+EMAIL_PASSWORD="${EMAIL_PASSWORD:-owkaajnsspehbigb}"
 
 # smtp 服务器地址
-EMAIL_SMTPHOST="smtp.qq.com"
+EMAIL_SMTPHOST="${EMAIL_SMTPHOST:=smtp.qq.com}"
+SMTP_SERVER="${EMAIL_SMTPHOST}:587"
 
 EMAIL_TITLE="[Report] MySQL Inspection Summary"
-EMAIL_CONTENT=""
 
 # ========== 1. 配置 6 个表格的描述和对应 TSV 文件路径 ==========
 
@@ -153,22 +153,23 @@ append_section() {
 # ========== 3. 发邮件 ==========
 
 send_mail() {
-  local EMAIL_EXCEL
-  EMAIL_EXCEL=$(cat "${MAIL_HTML}")
+  local EMAIL_CONTENT
+  EMAIL_CONTENT=$(cat "${MAIL_HTML}")
 
-  sendemail \
-    -f "${EMAIL_SENDER}" \
-    -t "${EMAIL_RECIVER}" \
-    -s "${EMAIL_SMTPHOST}" \
-    -u "${EMAIL_TITLE}" \
-    -xu "${EMAIL_USERNAME}" \
-    -xp "${EMAIL_PASSWORD}" \
-    -m "${EMAIL_EXCEL}" \
-    ${EMAIL_CONTENT} \
+  sendEmail \
+    -f "$EMAIL_SENDER" \
+    -t "$EMAIL_RECIVER" \
+    -s "$SMTP_SERVER" \
+    -u "$EMAIL_TITLE" \
+    -xu "$EMAIL_USERNAME" \
+    -xp "$EMAIL_PASSWORD" \
+    -o tls=yes \
     -o message-charset=utf-8 \
     -o message-content-type=html \
-    -o tls=no
-}
+    < "$EMAIL_CONTENT"
+  }
+
+
 
 # ========== 4. 主流程 ==========
 
