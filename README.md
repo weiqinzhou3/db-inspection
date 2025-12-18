@@ -22,7 +22,7 @@ Run across all active MySQL assets (type=mysql, is_active=1, auth_mode=login_pat
 
 ## Analysis queries
 
-Run analysis SQL against the meta DB (compatible with MySQL 5.7/8):
+Run analysis SQL against the meta DB (compatible with MySQL 5.7/8 and ONLY_FULL_GROUP_BY):
 
 - `mysql --login-path=ops_meta -D ops_inspection < sql/analysis.sql`
 - Or `OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/run_mysql_analysis.sh`

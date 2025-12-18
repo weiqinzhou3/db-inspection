@@ -1,4 +1,4 @@
--- 兼容 MySQL 5.7/8，meta 库 ops_inspection 也可运行在 5.7/8
+-- 兼容 MySQL 5.7/8.0，满足 ONLY_FULL_GROUP_BY；被巡检实例与 meta 库均可为 5.7/8.0
 
 -- =========================================================
 -- Q1: 实例最新逻辑大小总览（按 env / instance_name 展示）
@@ -26,10 +26,11 @@ JOIN (
   ON s.instance_id = ls.instance_id AND s.stat_time = ls.stat_time
 JOIN ops_inspection.asset_instance a
   ON CAST(a.instance_id AS CHAR) = s.instance_id
+WHERE a.is_active = 1
 ORDER BY s.logical_total_bytes DESC, a.env, a.instance_name;
 
 -- =========================================================
--- Q2: 实例逻辑容量增长（最近 10 条 snapshot 对比）
+-- Q2: 实例逻辑容量增长（最近 10 条 snapshot 对比，可按需调整 N=10）
 -- 输出字段：env、instance_name、host、port、first_time/last_time、first_total_gb/last_total_gb、diff_gb、avg_growth_gb_per_day
 -- 说明：若仅有 1 条数据，diff 与日均增长视为 0
 -- =========================================================
@@ -56,7 +57,7 @@ FROM (
          MIN(r.stat_time) AS first_time,
          MAX(r.stat_time) AS last_time
   FROM (
-    SELECT s.*
+    SELECT s.instance_id, s.stat_time
     FROM ops_inspection.snap_mysql_instance_storage s
     WHERE (
       SELECT COUNT(*) FROM ops_inspection.snap_mysql_instance_storage s2
@@ -65,20 +66,12 @@ FROM (
   ) r
   GROUP BY r.instance_id
 ) summary
-JOIN (
-  SELECT s.*
-  FROM ops_inspection.snap_mysql_instance_storage s
-  WHERE (
-    SELECT COUNT(*) FROM ops_inspection.snap_mysql_instance_storage s2
-    WHERE s2.instance_id = s.instance_id AND s2.stat_time > s.stat_time
-  ) < 10
-) recent ON recent.instance_id = summary.instance_id
 JOIN ops_inspection.asset_instance a ON CAST(a.instance_id AS CHAR) = summary.instance_id
 JOIN ops_inspection.snap_mysql_instance_storage first_rec
   ON first_rec.instance_id = summary.instance_id AND first_rec.stat_time = summary.first_time
 JOIN ops_inspection.snap_mysql_instance_storage last_rec
   ON last_rec.instance_id = summary.instance_id AND last_rec.stat_time = summary.last_time
-GROUP BY summary.instance_id
+WHERE a.is_active = 1
 ORDER BY avg_growth_gb_per_day DESC, summary.last_time DESC;
 
 -- =========================================================
@@ -131,6 +124,7 @@ JOIN (
   AND t.table_name = lt.table_name
   AND t.stat_time = lt.stat_time
 LEFT JOIN ops_inspection.asset_instance a ON CAST(a.instance_id AS CHAR) = t.instance_id
+WHERE a.is_active = 1
 ORDER BY t.total_bytes DESC, t.rank_no ASC;
 
 -- =========================================================
@@ -149,5 +143,6 @@ JOIN (
   GROUP BY instance_id
 ) latest ON s.instance_id = latest.instance_id AND s.stat_time = latest.stat_time
 JOIN ops_inspection.asset_instance a ON CAST(a.instance_id AS CHAR) = s.instance_id
+WHERE a.is_active = 1
 GROUP BY a.env
 ORDER BY total_bytes DESC;
