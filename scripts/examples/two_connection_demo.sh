@@ -4,6 +4,7 @@ set -euo pipefail
 # Usage: TARGET_LOGIN_PATH=target1 OPS_META_LOGIN_PATH=ops_meta INSTANCE_ID=101 ./two_connection_demo.sh
 TARGET_LOGIN_PATH="${TARGET_LOGIN_PATH:-}"
 OPS_META_LOGIN_PATH="${OPS_META_LOGIN_PATH:-}"
+OPS_META_DB="${OPS_META_DB:-}"
 INSTANCE_ID="${INSTANCE_ID:-}"
 
 if [[ -z "$TARGET_LOGIN_PATH" || -z "$OPS_META_LOGIN_PATH" || -z "$INSTANCE_ID" ]]; then
@@ -18,24 +19,34 @@ topn_tsv="$tmp_dir/top20_tables.tsv"
 cleanup() { rm -rf "$tmp_dir"; }
 trap cleanup EXIT
 
-root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
+  echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1091
+source "${projectDir}/config/schema_env.sh"
+
+DB_NAME="${OPS_META_DB:-$OPS_INSPECTION_DB}"
 
 # Collect from inspected instance (read-only)
 {
   printf 'SET @instance_id:=%s;\n' "$INSTANCE_ID"
-  cat "$root_dir/sql/collect/instance_logical_summary.sql"
+  cat "$projectDir/sql/collect/instance_logical_summary.sql"
 } | mysql --login-path="$TARGET_LOGIN_PATH" --batch --raw -N >"$summary_tsv"
 
 {
   printf 'SET @instance_id:=%s;\n' "$INSTANCE_ID"
-  cat "$root_dir/sql/collect/top20_tables.sql"
+  cat "$projectDir/sql/collect/top20_tables.sql"
 } | mysql --login-path="$TARGET_LOGIN_PATH" --batch --raw -N >"$topn_tsv"
 
 # Load instance summary into meta DB
 IFS=$'\t' read -r stat_time instance_id logical_data logical_index logical_total mysql_version < "$summary_tsv"
 
-mysql --login-path="$OPS_META_LOGIN_PATH" -D ops_inspection -e "
-INSERT INTO snap_mysql_instance_storage(
+mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" -e "
+INSERT INTO ${T_SNAP_MYSQL_INSTANCE_STORAGE}(
   stat_time,instance_id,logical_data_bytes,logical_index_bytes,logical_total_bytes,mysql_version,collect_status,error_msg
 ) VALUES (
   '$stat_time','$instance_id',$logical_data,$logical_index,$logical_total,'$mysql_version','ok',NULL
@@ -49,8 +60,8 @@ while IFS=$'\t' read -r stat_time instance_id schema_name table_name engine tabl
   table_rows_val="NULL"
   [[ -n "$table_rows" ]] && table_rows_val="$table_rows"
 
-  mysql --login-path="$OPS_META_LOGIN_PATH" -D ops_inspection -e "
-INSERT INTO snap_mysql_table_topn(
+  mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" -e "
+INSERT INTO ${T_SNAP_MYSQL_TABLE_TOPN}(
   stat_time,instance_id,schema_name,table_name,engine,table_rows,data_bytes,index_bytes,total_bytes,rank_no
 ) VALUES (
   '$stat_time','$instance_id','$schema_name','$table_name',$engine_val,$table_rows_val,$data_bytes,$index_bytes,$total_bytes,$rank_no
@@ -58,4 +69,4 @@ INSERT INTO snap_mysql_table_topn(
 "
 done < "$topn_tsv"
 
-echo "Done. Loaded into ops_inspection via $OPS_META_LOGIN_PATH"
+echo "Done. Loaded into $DB_NAME via $OPS_META_LOGIN_PATH"

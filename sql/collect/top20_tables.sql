@@ -7,12 +7,13 @@ SELECT
   t.table_name,
   t.engine,
   t.table_rows,
-  t.DATA_LENGTH AS data_bytes,
-  t.INDEX_LENGTH AS index_bytes,
-  (t.DATA_LENGTH + t.INDEX_LENGTH) AS total_bytes,
+  IFNULL(t.DATA_LENGTH, 0) AS data_bytes,
+  IFNULL(t.INDEX_LENGTH, 0) AS index_bytes,
+  (IFNULL(t.DATA_LENGTH, 0) + IFNULL(t.INDEX_LENGTH, 0)) AS total_bytes,
   (@rk := @rk + 1) AS rank_no
 FROM information_schema.tables t
 JOIN (SELECT @rk := 0) r
-WHERE t.table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')
+WHERE t.table_type = 'BASE TABLE'
+  AND t.table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys', 'mysql_innodb_cluster_metadata')
 ORDER BY total_bytes DESC
 LIMIT 20;

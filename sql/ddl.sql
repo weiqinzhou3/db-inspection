@@ -1,4 +1,9 @@
 -- Schema and table DDL for ops_inspection
+-- schema & table logical mapping
+-- @schema OPS_INSPECTION_DB=ops_inspection
+-- @table ASSET_INSTANCE=asset_instance
+-- @table SNAP_MYSQL_INSTANCE_STORAGE=snap_mysql_instance_storage
+-- @table SNAP_MYSQL_TABLE_TOPN=snap_mysql_table_topn
 
 -- Create schema
 CREATE DATABASE IF NOT EXISTS ops_inspection
@@ -13,7 +18,7 @@ CREATE TABLE IF NOT EXISTS asset_instance (
   type ENUM('mysql', 'redis', 'mongodb') NOT NULL DEFAULT 'mysql',
   instance_name VARCHAR(25) NOT NULL,
   alias_name VARCHAR(25) NULL,
-  env ENUM('MOS', 'Purple', 'RTM', 'MIB2', NULL) DEFAULT NULL,
+  env ENUM('MOS', 'Purple', 'RTM', 'MIB2') DEFAULT NULL,
   host VARCHAR(50) NOT NULL,
   port INT NOT NULL,
   auth_mode ENUM('login_path', 'local_secret', 'secret_ref', 'password') NOT NULL DEFAULT 'login_path',

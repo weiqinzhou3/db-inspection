@@ -8,6 +8,14 @@ projectDir=$(
   pwd
 )
 
+if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
+  echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1091
+source "${projectDir}/config/schema_env.sh"
+
 # 所有 TSV 和临时 HTML 都放在这里
 OUT_DIR="${projectDir}/out/mysql_analysis"
 mkdir -p "${OUT_DIR}"
@@ -108,7 +116,7 @@ html_table_from_tsv() {
     else
       # 数据行
       if (( line_no % 2 == 0 )); then
-        echo '<tr bgcolor="#FFA500">'
+        echo '<tr bgcolor="#E6F2FF">'
       else
         echo '<tr>'
       fi

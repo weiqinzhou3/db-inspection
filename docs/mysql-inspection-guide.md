@@ -23,7 +23,15 @@ git clone https://github.com/weiqinzhou3/db-inspection
 cd db_inspection
 ```
 
-## 3) Initialize meta DB schema (one-time)
+## 3) Generate schema/table mapping
+
+Scripts rely on a generated mapping file from `sql/ddl.sql`:
+
+```
+./scripts/gen_schema_env.sh
+```
+
+## 4) Initialize meta DB schema (one-time)
 
 Create `ops_inspection` schema and tables using `sql/ddl.sql`:
 
@@ -31,7 +39,7 @@ Create `ops_inspection` schema and tables using `sql/ddl.sql`:
 mysql --login-path=ops_meta -e "SOURCE sql/ddl.sql"
 ```
 
-## 4) Configure MySQL assets to inspect
+## 5) Configure MySQL assets to inspect
 
 Copy the config template:
 
@@ -63,7 +71,7 @@ This script will:
 - insert assets into `ops_inspection.asset_instance`
 - create `login_path` entries for each instance (if needed)
 
-## 5) Run a full MySQL inspection
+## 6) Run a full MySQL inspection
 
 The inspection script:
 
@@ -77,7 +85,7 @@ Run:
 OPS_META_LOGIN_PATH=ops_meta ./scripts/run_mysql_inspection.sh
 ```
 
-## 6) View analysis results in terminal
+## 7) View analysis results in terminal
 
 Q1~Q6 views in `sql/analysis.sql`:
 
@@ -96,7 +104,7 @@ Run:
 mysql --login-path=ops_meta -D ops_inspection < sql/analysis.sql
 ```
 
-## 7) Export TSV analysis results
+## 8) Export TSV analysis results
 
 This exports Q1~Q6 to TSV files under `out/mysql_analysis/`:
 
@@ -115,7 +123,7 @@ Files generated:
 
 All capacity values in these TSVs are in **GB**.
 
-## 8) Build and send the email report
+## 9) Build and send the email report
 
 The mail script:
 
@@ -136,7 +144,7 @@ Run:
 
 Default subject is `[Report] MySQL Inspection Summary`. The body includes Q1~Q6 sections with a description and a table.
 
-## 9) (Optional) Schedule daily runs
+## 10) (Optional) Schedule daily runs
 
 Example crontab (daily at 09:00):
 

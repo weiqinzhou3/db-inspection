@@ -6,6 +6,7 @@ config/*password*
 config/*secret*
 config/mysql-init.yaml
 config/mysql-init.*
+config/schema_env.sh
 out/*
 # local
 .DS_Store

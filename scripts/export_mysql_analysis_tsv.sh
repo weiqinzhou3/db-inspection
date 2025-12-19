@@ -6,7 +6,7 @@ set -euo pipefail
 #   OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/export_mysql_analysis_tsv.sh
 
 OPS_META_LOGIN_PATH="${OPS_META_LOGIN_PATH:-}"
-OPS_META_DB="${OPS_META_DB:-ops_inspection}"
+OPS_META_DB="${OPS_META_DB:-}"
 
 if [[ -z "$OPS_META_LOGIN_PATH" ]]; then
   echo "OPS_META_LOGIN_PATH is required (mysql_config_editor login-path for meta DB)" >&2
@@ -16,12 +16,22 @@ fi
 command -v mysql >/dev/null || { echo "mysql client not found in PATH" >&2; exit 1; }
 
 projectDir=$(cd "$(dirname "$0")/.." && pwd)
+
+if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
+  echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1091
+source "${projectDir}/config/schema_env.sh"
+
+DB_NAME="${OPS_META_DB:-$OPS_INSPECTION_DB}"
 OUT_DIR="${OPS_TSV_OUTDIR:-${projectDir}/out/mysql_analysis}"
 mkdir -p "${OUT_DIR}"
 
 # Q1: 巡检失败实例明细（最近一次采集失败）
 mysql --login-path="$OPS_META_LOGIN_PATH" \
-  -D "$OPS_META_DB" \
+  -D "$DB_NAME" \
   --batch --raw \
   -e "SELECT
   CASE
@@ -37,14 +47,14 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   s.mysql_version,
   s.collect_status AS last_collect_status,
   s.error_msg
-FROM ops_inspection.snap_mysql_instance_storage s
+FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
 JOIN (
   SELECT instance_id, MAX(stat_time) AS stat_time
-  FROM ops_inspection.snap_mysql_instance_storage
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
   GROUP BY instance_id
 ) ls
   ON s.instance_id = ls.instance_id AND s.stat_time = ls.stat_time
-JOIN ops_inspection.asset_instance a
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
   ON CAST(a.instance_id AS CHAR) = s.instance_id
 WHERE a.is_active = 1
   AND (s.collect_status <> 'ok' OR (s.error_msg IS NOT NULL AND s.error_msg <> ''))
@@ -55,7 +65,7 @@ echo "exported Q1 to ${OUT_DIR}/q1_failed_instances.tsv"
 
 # Q2: 按 env 汇总容量（最近一次 vs 上一次）
 mysql --login-path="$OPS_META_LOGIN_PATH" \
-  -D "$OPS_META_DB" \
+  -D "$DB_NAME" \
   --batch --raw \
   -e "SELECT
   CASE
@@ -80,26 +90,26 @@ FROM (
     (last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) AS diff_bytes
   FROM (
     SELECT instance_id, MAX(stat_time) AS last_time
-    FROM ops_inspection.snap_mysql_instance_storage
+    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
     GROUP BY instance_id
   ) last_time
-  JOIN ops_inspection.snap_mysql_instance_storage last_rec
+  JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} last_rec
     ON last_rec.instance_id = last_time.instance_id AND last_rec.stat_time = last_time.last_time
   LEFT JOIN (
     SELECT s.instance_id, MAX(s.stat_time) AS prev_time
-    FROM ops_inspection.snap_mysql_instance_storage s
+    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
     JOIN (
       SELECT instance_id, MAX(stat_time) AS last_time
-      FROM ops_inspection.snap_mysql_instance_storage
+      FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
       GROUP BY instance_id
     ) last2
       ON s.instance_id = last2.instance_id AND s.stat_time < last2.last_time
     GROUP BY s.instance_id
   ) prev_time
     ON prev_time.instance_id = last_time.instance_id
-  LEFT JOIN ops_inspection.snap_mysql_instance_storage prev_rec
+  LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} prev_rec
     ON prev_rec.instance_id = prev_time.instance_id AND prev_rec.stat_time = prev_time.prev_time
-  JOIN ops_inspection.asset_instance a
+  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON CAST(a.instance_id AS CHAR) = last_time.instance_id
   WHERE a.is_active = 1
 ) inst
@@ -115,7 +125,7 @@ echo "exported Q2 to ${OUT_DIR}/q2_env_summary.tsv"
 
 # Q3: 实例容量差异 Top20（按 diff 绝对值排序）
 mysql --login-path="$OPS_META_LOGIN_PATH" \
-  -D "$OPS_META_DB" \
+  -D "$DB_NAME" \
   --batch --raw \
   -e "SELECT
   CASE
@@ -140,26 +150,26 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   END AS diff_gb_fmt
 FROM (
   SELECT instance_id, MAX(stat_time) AS last_time
-  FROM ops_inspection.snap_mysql_instance_storage
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
   GROUP BY instance_id
 ) last_time
-JOIN ops_inspection.snap_mysql_instance_storage last_rec
+JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} last_rec
   ON last_rec.instance_id = last_time.instance_id AND last_rec.stat_time = last_time.last_time
 LEFT JOIN (
   SELECT s.instance_id, MAX(s.stat_time) AS prev_time
-  FROM ops_inspection.snap_mysql_instance_storage s
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
   JOIN (
     SELECT instance_id, MAX(stat_time) AS last_time
-    FROM ops_inspection.snap_mysql_instance_storage
+    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
     GROUP BY instance_id
   ) last2
     ON s.instance_id = last2.instance_id AND s.stat_time < last2.last_time
   GROUP BY s.instance_id
 ) prev_time
   ON prev_time.instance_id = last_time.instance_id
-LEFT JOIN ops_inspection.snap_mysql_instance_storage prev_rec
+LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} prev_rec
   ON prev_rec.instance_id = prev_time.instance_id AND prev_rec.stat_time = prev_time.prev_time
-JOIN ops_inspection.asset_instance a
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
   ON CAST(a.instance_id AS CHAR) = last_time.instance_id
 WHERE a.is_active = 1
 ORDER BY ABS(last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) DESC
@@ -170,7 +180,7 @@ echo "exported Q3 to ${OUT_DIR}/q3_instance_diff_top20.tsv"
 
 # Q4: 所有实例最新 vs 上一次容量明细
 mysql --login-path="$OPS_META_LOGIN_PATH" \
-  -D "$OPS_META_DB" \
+  -D "$DB_NAME" \
   --batch --raw \
   -e "SELECT
   CASE
@@ -195,26 +205,26 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   END AS diff_gb_fmt
 FROM (
   SELECT instance_id, MAX(stat_time) AS last_time
-  FROM ops_inspection.snap_mysql_instance_storage
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
   GROUP BY instance_id
 ) last_time
-JOIN ops_inspection.snap_mysql_instance_storage last_rec
+JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} last_rec
   ON last_rec.instance_id = last_time.instance_id AND last_rec.stat_time = last_time.last_time
 LEFT JOIN (
   SELECT s.instance_id, MAX(s.stat_time) AS prev_time
-  FROM ops_inspection.snap_mysql_instance_storage s
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
   JOIN (
     SELECT instance_id, MAX(stat_time) AS last_time
-    FROM ops_inspection.snap_mysql_instance_storage
+    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
     GROUP BY instance_id
   ) last2
     ON s.instance_id = last2.instance_id AND s.stat_time < last2.last_time
   GROUP BY s.instance_id
 ) prev_time
   ON prev_time.instance_id = last_time.instance_id
-LEFT JOIN ops_inspection.snap_mysql_instance_storage prev_rec
+LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} prev_rec
   ON prev_rec.instance_id = prev_time.instance_id AND prev_rec.stat_time = prev_time.prev_time
-JOIN ops_inspection.asset_instance a
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
   ON CAST(a.instance_id AS CHAR) = last_time.instance_id
 WHERE a.is_active = 1
 ORDER BY diff_gb DESC, a.env, a.instance_name;" \
@@ -224,7 +234,7 @@ echo "exported Q4 to ${OUT_DIR}/q4_instance_last_vs_prev.tsv"
 
 # Q5: 实例最新容量快照总览
 mysql --login-path="$OPS_META_LOGIN_PATH" \
-  -D "$OPS_META_DB" \
+  -D "$DB_NAME" \
   --batch --raw \
   -e "SELECT
   CASE
@@ -241,14 +251,14 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   ROUND(s.logical_total_bytes / POW(1024, 3), 2) AS logical_total_gb,
   s.mysql_version,
   s.collect_status AS last_collect_status
-FROM ops_inspection.snap_mysql_instance_storage s
+FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
 JOIN (
   SELECT instance_id, MAX(stat_time) AS stat_time
-  FROM ops_inspection.snap_mysql_instance_storage
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
   GROUP BY instance_id
 ) ls
   ON s.instance_id = ls.instance_id AND s.stat_time = ls.stat_time
-JOIN ops_inspection.asset_instance a
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
   ON CAST(a.instance_id AS CHAR) = s.instance_id
 WHERE a.is_active = 1
 ORDER BY s.logical_total_bytes DESC, a.env, a.instance_name;" \
@@ -258,7 +268,7 @@ echo "exported Q5 to ${OUT_DIR}/q5_instance_latest_capacity.tsv"
 
 # Q6: Top20 大表最新 vs 上一次排名变化（每实例）
 mysql --login-path="$OPS_META_LOGIN_PATH" \
-  -D "$OPS_META_DB" \
+  -D "$DB_NAME" \
   --batch --raw \
   -e "SELECT
   CASE
@@ -282,29 +292,29 @@ mysql --login-path="$OPS_META_LOGIN_PATH" \
   END AS rank_delta_fmt
 FROM (
   SELECT instance_id, MAX(stat_time) AS last_time
-  FROM ops_inspection.snap_mysql_table_topn
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN}
   GROUP BY instance_id
 ) last_round
-JOIN ops_inspection.snap_mysql_table_topn t_last
+JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} t_last
   ON t_last.instance_id = last_round.instance_id AND t_last.stat_time = last_round.last_time
 LEFT JOIN (
   SELECT s.instance_id, MAX(s.stat_time) AS prev_time
-  FROM ops_inspection.snap_mysql_table_topn s
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} s
   JOIN (
     SELECT instance_id, MAX(stat_time) AS last_time
-    FROM ops_inspection.snap_mysql_table_topn
+    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN}
     GROUP BY instance_id
   ) last2
     ON s.instance_id = last2.instance_id AND s.stat_time < last2.last_time
   GROUP BY s.instance_id
 ) prev_round
   ON prev_round.instance_id = last_round.instance_id
-LEFT JOIN ops_inspection.snap_mysql_table_topn t_prev
+LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} t_prev
   ON t_prev.instance_id = last_round.instance_id
   AND t_prev.stat_time = prev_round.prev_time
   AND t_prev.schema_name = t_last.schema_name
   AND t_prev.table_name = t_last.table_name
-JOIN ops_inspection.asset_instance a
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
   ON CAST(a.instance_id AS CHAR) = t_last.instance_id
 WHERE a.is_active = 1
 ORDER BY a.env, a.instance_name, t_last.rank_no ASC;" \

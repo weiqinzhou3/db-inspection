@@ -9,7 +9,7 @@ set -euo pipefail
 #   OPS_META_LOGIN_PATH=ops_meta [OPS_META_DB=ops_inspection] [CONFIG_PATH=config/mysql-init.yaml] ./scripts/init_mysql_assets.sh
 
 OPS_META_LOGIN_PATH="${OPS_META_LOGIN_PATH:-}"
-OPS_META_DB="${OPS_META_DB:-ops_inspection}"
+OPS_META_DB="${OPS_META_DB:-}"
 CONFIG_PATH="${CONFIG_PATH:-config/mysql-init.yaml}"
 
 if [[ -z "$OPS_META_LOGIN_PATH" ]]; then
@@ -26,6 +26,18 @@ fi
 command -v mysql >/dev/null || { echo "mysql client not found in PATH" >&2; exit 1; }
 command -v mysql_config_editor >/dev/null || { echo "mysql_config_editor not found in PATH" >&2; exit 1; }
 command -v expect >/dev/null || { echo "expect not found in PATH (required for mysql_config_editor automation)" >&2; exit 1; }
+
+projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
+  echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1091
+source "${projectDir}/config/schema_env.sh"
+
+DB_NAME="${OPS_META_DB:-$OPS_INSPECTION_DB}"
 
 sql_escape() {
   # Escape single quotes for SQL literals
@@ -219,8 +231,8 @@ while IFS= read -r line; do
     env_condition="env='$(sql_escape "$env")'"
   fi
 
-  existing_row="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$OPS_META_DB" -e "
-SELECT instance_id, COALESCE(login_path,'') FROM asset_instance
+  existing_row="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$DB_NAME" -e "
+SELECT instance_id, COALESCE(login_path,'') FROM ${T_ASSET_INSTANCE}
 WHERE type='mysql' AND ${env_condition}
   AND host='$(sql_escape "$host")'
   AND port=$port
@@ -238,8 +250,8 @@ LIMIT 1;
       if [[ -z "$login_path_final" ]]; then
         login_path_final="${instance_name}"
       fi
-      mysql --login-path="$OPS_META_LOGIN_PATH" -D "$OPS_META_DB" -e "
-UPDATE asset_instance SET login_path='$(sql_escape "$login_path_final")'
+      mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" -e "
+UPDATE ${T_ASSET_INSTANCE} SET login_path='$(sql_escape "$login_path_final")'
 WHERE instance_id=$instance_id;
 "
       existing_login_path="$login_path_final"
@@ -247,7 +259,7 @@ WHERE instance_id=$instance_id;
     fi
   else
     insert_sql="
-INSERT INTO asset_instance(
+INSERT INTO ${T_ASSET_INSTANCE}(
   instance_name, alias_name, env, host, port, username, login_path
 ) VALUES (
   '$(sql_escape "$instance_name")',
@@ -260,7 +272,7 @@ INSERT INTO asset_instance(
 );
 SELECT LAST_INSERT_ID();
 "
-    new_id="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$OPS_META_DB" -e "$insert_sql")"
+    new_id="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$DB_NAME" -e "$insert_sql")"
     instance_id="$new_id"
     echo "[NEW] Inserted instance_name=$instance_name env=$env host=$host port=$port -> instance_id=$instance_id"
   fi

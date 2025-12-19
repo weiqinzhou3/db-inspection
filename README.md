@@ -20,6 +20,18 @@ Run across all active MySQL assets (type=mysql, is_active=1, auth_mode=login_pat
 
 `OPS_META_LOGIN_PATH=ops_meta ./scripts/run_mysql_inspection.sh`
 
+## Schema/table mapping
+
+Logical names for schema and tables are declared in `sql/ddl.sql` via `-- @schema` / `-- @table` annotations. Generate the runtime mapping file with:
+
+`./scripts/gen_schema_env.sh`
+
+All shell scripts source `config/schema_env.sh` and reference schema/table names via variables. To change schema/table names in the future:
+
+1) Update the `@schema` / `@table` annotations in `sql/ddl.sql`  
+2) Run `./scripts/gen_schema_env.sh`  
+3) No shell script edits required
+
 ## Analysis queries
 
 `sql/analysis.sql` provides Q1~Q6 analysis views (compatible with MySQL 5.7/8 and ONLY_FULL_GROUP_BY):

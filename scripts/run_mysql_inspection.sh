@@ -8,7 +8,7 @@ set -euo pipefail
 #   OPS_META_LOGIN_PATH=ops_meta [OPS_META_DB=ops_inspection] ./scripts/run_mysql_inspection.sh
 
 OPS_META_LOGIN_PATH="${OPS_META_LOGIN_PATH:-}"
-OPS_META_DB="${OPS_META_DB:-ops_inspection}"
+OPS_META_DB="${OPS_META_DB:-}"
 
 if [[ -z "$OPS_META_LOGIN_PATH" ]]; then
   echo "OPS_META_LOGIN_PATH is required (mysql_config_editor login-path for meta DB)" >&2
@@ -17,7 +17,17 @@ fi
 
 command -v mysql >/dev/null || { echo "mysql client not found in PATH" >&2; exit 1; }
 
-root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
+  echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1091
+source "${projectDir}/config/schema_env.sh"
+
+DB_NAME="${OPS_META_DB:-$OPS_INSPECTION_DB}"
 
 sql_escape() {
   local s="${1//\'/\'\'}"
@@ -28,12 +38,12 @@ success=0
 failed=0
 
 echo "[INIT] Ensure schema/tables exist via sql/ddl.sql"
-mysql --login-path="$OPS_META_LOGIN_PATH" < "$root_dir/sql/ddl.sql"
+mysql --login-path="$OPS_META_LOGIN_PATH" < "$projectDir/sql/ddl.sql"
 
-echo "[FETCH] Loading active MySQL assets from $OPS_META_DB.asset_instance"
-assets="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$OPS_META_DB" -e "
+echo "[FETCH] Loading active MySQL assets from $DB_NAME.${T_ASSET_INSTANCE}"
+assets="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$DB_NAME" -e "
 SELECT instance_id, login_path
-FROM asset_instance
+FROM ${T_ASSET_INSTANCE}
 WHERE type='mysql' AND is_active=1 AND auth_mode='login_path' AND login_path IS NOT NULL;
 ")"
 
@@ -57,7 +67,7 @@ while IFS=$'\t' read -r instance_id login_path; do
   if ! summary_out="$(
     {
       printf 'SET @instance_id:=%s;\n' "$instance_id"
-      cat "$root_dir/sql/collect/instance_logical_summary.sql"
+      cat "$projectDir/sql/collect/instance_logical_summary.sql"
     } | mysql --login-path="$login_path" --batch --raw -N 2>&1
   )"; then
     instance_error="summary: $summary_out"
@@ -79,10 +89,10 @@ while IFS=$'\t' read -r instance_id login_path; do
   if [[ -z "$instance_error" ]]; then
     if ! topn_out="$(
       {
-        printf 'SET @instance_id:=%s;\n' "$instance_id"
-        cat "$root_dir/sql/collect/top20_tables.sql"
-      } | mysql --login-path="$login_path" --batch --raw -N 2>&1
-    )"; then
+      printf 'SET @instance_id:=%s;\n' "$instance_id"
+      cat "$projectDir/sql/collect/top20_tables.sql"
+    } | mysql --login-path="$login_path" --batch --raw -N 2>&1
+  )"; then
       instance_error="topn: $topn_out"
       topn_ok=false
     elif [[ -n "$topn_out" ]]; then
@@ -92,8 +102,8 @@ while IFS=$'\t' read -r instance_id login_path; do
         [[ -n "$engine" ]] && engine_sql="'$(sql_escape "$engine")'"
         table_rows_sql="NULL"
         [[ -n "$table_rows" ]] && table_rows_sql="$table_rows"
-        if ! mysql --login-path="$OPS_META_LOGIN_PATH" -D "$OPS_META_DB" -e "
-INSERT INTO snap_mysql_table_topn(
+        if ! mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" -e "
+INSERT INTO ${T_SNAP_MYSQL_TABLE_TOPN}(
   stat_time,instance_id,schema_name,table_name,engine,table_rows,data_bytes,index_bytes,total_bytes,rank_no
 ) VALUES (
   '$t_stat_time','$t_instance_id','$(sql_escape "$schema_name")','$(sql_escape "$table_name")',$engine_sql,$table_rows_sql,$data_bytes,$index_bytes,$total_bytes,$rank_no
@@ -123,8 +133,8 @@ INSERT INTO snap_mysql_table_topn(
   mysql_version_sql="NULL"
   [[ -n "$mysql_version" ]] && mysql_version_sql="'$(sql_escape "$mysql_version")'"
 
-  if ! mysql --login-path="$OPS_META_LOGIN_PATH" -D "$OPS_META_DB" -e "
-INSERT INTO snap_mysql_instance_storage(
+  if ! mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" -e "
+INSERT INTO ${T_SNAP_MYSQL_INSTANCE_STORAGE}(
   stat_time,instance_id,logical_data_bytes,logical_index_bytes,logical_total_bytes,mysql_version,collect_status,error_msg
 ) VALUES (
   '$stat_time','$instance_id',$logical_data,$logical_index,$logical_total,$mysql_version_sql,'$collect_status',$error_msg
