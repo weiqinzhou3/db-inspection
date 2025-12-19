@@ -34,13 +34,13 @@ All shell scripts source `config/schema_env.sh` and reference schema/table names
 
 ## Analysis queries
 
-`sql/analysis.sql` provides Q1~Q6 analysis views (compatible with MySQL 5.7/8 and ONLY_FULL_GROUP_BY):
-- Q1: Failed instances (latest snapshot)
-- Q2: Env summary (latest vs previous diff)
-- Q3: Top20 instances by diff (latest vs previous)
-- Q4: All instances latest vs previous detail
-- Q5: Latest capacity overview per instance
-- Q6: Top20 tables rank change (latest vs previous round)
+`sql/analysis.sql` provides Q1~Q6 analysis views (compatible with MySQL 5.7/8 and ONLY_FULL_GROUP_BY, all capacity outputs in GB):
+- Q1: Failed instances (latest failed snapshot)
+- Q2: Env summary (latest vs previous, only latest-success instances; diff in fmt only)
+- Q3: Instance latest vs previous (data/index/total with fmt diffs)
+- Q4: Schema (per instance) current capacity Top5
+- Q5: Table (per instance) current capacity Top10
+- Q6: Table (per instance) last vs prev capacity diff Top10
 
 All capacity numbers in Q1~Q6 are output in GB (rounded to 2 decimals). Fields like `diff_*_fmt` and `rank_delta_fmt` are designed for report/email highlighting.
 
@@ -58,9 +58,22 @@ Export Q1~Q6 results to `out/mysql_analysis/q*.tsv` for downstream reporting (ca
 Files generated:
 - `out/mysql_analysis/q1_failed_instances.tsv`
 - `out/mysql_analysis/q2_env_summary.tsv`
-- `out/mysql_analysis/q3_instance_diff_top20.tsv`
-- `out/mysql_analysis/q4_instance_last_vs_prev.tsv`
-- `out/mysql_analysis/q5_instance_latest_capacity.tsv`
-- `out/mysql_analysis/q6_table_top20_rank_change.tsv`
+- `out/mysql_analysis/q3_instance_last_vs_prev.tsv`
+- `out/mysql_analysis/q4_schema_top5.tsv`
+- `out/mysql_analysis/q5_table_top10.tsv`
+- `out/mysql_analysis/q6_table_diff_top10.tsv`
 
 Email delivery is handled by `scripts/post_mysql_analysis_mail.sh`, which reads the TSV files and builds HTML; no additional mail-sending logic is needed here.
+
+## Mail configuration
+
+Provide mail settings via environment variables or `config/mail_env.sh` (create from `config/mail_env.example.sh`):
+
+- `EMAIL_RECIVER`, `EMAIL_SENDER`, `EMAIL_USERNAME`, `EMAIL_PASSWORD`, `EMAIL_SMTPHOST` (default smtp.qq.com), `EMAIL_TITLE` (default `[DB Inspection] MySQL Inspection Summary`)
+
+Example:
+
+```
+OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/export_mysql_analysis_tsv.sh
+./scripts/post_mysql_analysis_mail.sh
+```

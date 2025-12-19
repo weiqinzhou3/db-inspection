@@ -8,6 +8,11 @@ projectDir=$(
   pwd
 )
 
+if [ -f "${projectDir}/config/mail_env.sh" ]; then
+  # shellcheck disable=SC1091
+  . "${projectDir}/config/mail_env.sh"
+fi
+
 if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
   echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2
   exit 1
@@ -22,39 +27,33 @@ mkdir -p "${OUT_DIR}"
 
 MAIL_HTML="${OUT_DIR}/mail.html"
 
-# 收件人 / 发件人配置（允许通过环境变量覆盖）
-EMAIL_RECIVER="${EMAIL_RECIVER:-zhouqinwei@bsgchina.com}"
-EMAIL_SENDER="${EMAIL_SENDER:-zhouqinwei_01@qq.com}"
-# QQ 邮箱通常可以用完整邮箱做用户名，如果你需要纯数字 ID，可以自己改
+# 收件人 / 发件人配置（必须通过环境或 config/mail_env.sh 提供）
+EMAIL_RECIVER="${EMAIL_RECIVER:?EMAIL_RECIVER is required (set env or config/mail_env.sh)}"
+EMAIL_SENDER="${EMAIL_SENDER:?EMAIL_SENDER is required (set env or config/mail_env.sh)}"
 EMAIL_USERNAME="${EMAIL_USERNAME:-${EMAIL_SENDER}}"
-
-# 邮箱密码（建议用环境变量 EMAIL_PASSWORD 覆盖）
-EMAIL_PASSWORD="${EMAIL_PASSWORD:-owkaajnsspehbigb}"
-
-# smtp 服务器地址
+EMAIL_PASSWORD="${EMAIL_PASSWORD:?EMAIL_PASSWORD is required (set env or config/mail_env.sh)}"
 EMAIL_SMTPHOST="${EMAIL_SMTPHOST:-smtp.qq.com}"
 SMTP_SERVER="${EMAIL_SMTPHOST}:587"
-
-EMAIL_TITLE="[Report] MySQL Inspection Summary"
+EMAIL_TITLE="${EMAIL_TITLE:-[Report] Inspection Server}"
 
 # ========== 1. 配置 6 个表格的描述和对应 TSV 文件路径 ==========
 
 SECTION_TITLES=(
-  "1. Q1 - 巡检失败实例明细（最近一次采集失败）"
-  "2. Q2 - 各环境容量汇总（最近一次 vs 上一次）"
-  "3. Q3 - 容量差异最大的实例 Top20"
-  "4. Q4 - 实例最近一次 vs 上一次容量明细"
-  "5. Q5 - 实例最新容量总览"
-  "6. Q6 - Top20 大表最新 vs 上一次排名变化"
+  "1. Q1 - 巡检失败实例明细（最新失败）"
+  "2. Q2 - 各环境容量汇总（最新 vs 上一次，仅成功实例）"
+  "3. Q3 - 实例容量最近 vs 上一次（含 data/index/total 差异）"
+  "4. Q4 - 库维度当前容量 Top5（每实例）"
+  "5. Q5 - 表维度当前容量 Top10（每实例）"
+  "6. Q6 - 表维度近两次容量差异 Top10（每实例）"
 )
 
 SECTION_FILES=(
   "${OUT_DIR}/q1_failed_instances.tsv"
   "${OUT_DIR}/q2_env_summary.tsv"
-  "${OUT_DIR}/q3_instance_diff_top20.tsv"
-  "${OUT_DIR}/q4_instance_last_vs_prev.tsv"
-  "${OUT_DIR}/q5_instance_latest_capacity.tsv"
-  "${OUT_DIR}/q6_table_top20_rank_change.tsv"
+  "${OUT_DIR}/q3_instance_last_vs_prev.tsv"
+  "${OUT_DIR}/q4_schema_top5.tsv"
+  "${OUT_DIR}/q5_table_top10.tsv"
+  "${OUT_DIR}/q6_table_diff_top10.tsv"
 )
 
 # ========== 2. HTML 生成工具函数 ==========

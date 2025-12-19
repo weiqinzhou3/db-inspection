@@ -157,6 +157,7 @@ parse_yaml() {
 }
 
 records="$(parse_yaml "$CONFIG_PATH")"
+login_path_rows=()
 
 echo "Starting MySQL asset initialization from $CONFIG_PATH"
 while IFS= read -r line; do
@@ -287,27 +288,38 @@ SELECT LAST_INSERT_ID();
     fi
   fi
 
-  records_for_login_path+="$instance_id $host $port $username $password $login_path_final"$'\n'
+  if [[ -z "$login_path_final" ]]; then
+    echo "WARN: skip asset env=${env:-} host=${host} port=${port} because login_path is empty" >&2
+    continue
+  fi
+
+  login_path_rows+=("$instance_id"$'\t'"$host"$'\t'"$port"$'\t'"$username"$'\t'"$password"$'\t'"$login_path_final")
 
 done <<< "$records"
 
 # 为所有需要的实例创建 login-path
 echo "Creating mysql_config_editor login-path entries..."
-while IFS= read -r row; do
-  [[ -z "$row" ]] && continue
-  read -r instance_id host port username password login_path_final <<<"$row"
+for row in "${login_path_rows[@]}"; do
+  IFS=$'\t' read -r instance_id host port username password login_path_final <<<"$row"
+
+  # strip accidental prefixes if present
+  host="${host#host=}"
+  port="${port#port=}"
+  username="${username#username=}"
+  login_path_final="${login_path_final#login_path=}"
 
   if [[ -z "$password" ]]; then
     echo "[WARN] Missing password for instance_id=$instance_id; skipping mysql_config_editor" >&2
     continue
   fi
 
+  # standard mysql_config_editor set with clean parameters
   if ! create_login_path "$login_path_final" "$host" "$username" "$port" "$password"; then
     echo "[ERROR] Failed to create login_path=$login_path_final for instance_id=$instance_id" >&2
   else
     echo "[LOGIN_PATH] mysql_config_editor set --login-path=$login_path_final (host=$host port=$port user=$username)"
   fi
 
-done <<< "$records"
+done
 
 echo "Initialization completed."

@@ -89,12 +89,12 @@ OPS_META_LOGIN_PATH=ops_meta ./scripts/run_mysql_inspection.sh
 
 Q1~Q6 views in `sql/analysis.sql`:
 
-- Q1: failed instances (latest snapshot)
-- Q2: env summary (latest vs previous)
-- Q3: top20 instances by diff
-- Q4: all instances latest vs previous detail
-- Q5: latest capacity overview
-- Q6: top20 table rank change
+- Q1: failed instances (latest failed snapshot)
+- Q2: env summary (latest vs previous, only latest-success instances; diff in fmt only)
+- Q3: instance latest vs previous (data/index/total with fmt diffs)
+- Q4: schema (per instance) current capacity Top5
+- Q5: table (per instance) current capacity Top10
+- Q6: table (per instance) last vs prev capacity diff Top10
 
 All capacity values are in **GB** (rounded to 2 decimals).
 
@@ -116,10 +116,10 @@ Files generated:
 
 - `q1_failed_instances.tsv`
 - `q2_env_summary.tsv`
-- `q3_instance_diff_top20.tsv`
-- `q4_instance_last_vs_prev.tsv`
-- `q5_instance_latest_capacity.tsv`
-- `q6_table_top20_rank_change.tsv`
+- `q3_instance_last_vs_prev.tsv`
+- `q4_schema_top5.tsv`
+- `q5_table_top10.tsv`
+- `q6_table_diff_top10.tsv`
 
 All capacity values in these TSVs are in **GB**.
 
@@ -135,6 +135,9 @@ Environment variables used:
 
 - `EMAIL_RECIVER`, `EMAIL_SENDER`, `EMAIL_USERNAME`
 - `EMAIL_PASSWORD`, `EMAIL_SMTPHOST`
+- `EMAIL_TITLE` (optional)
+
+You can set them via environment or a local `config/mail_env.sh` created from `config/mail_env.example.sh`.
 
 Run:
 
@@ -142,7 +145,7 @@ Run:
 ./scripts/post_mysql_analysis_mail.sh
 ```
 
-Default subject is `[Report] MySQL Inspection Summary`. The body includes Q1~Q6 sections with a description and a table.
+Default subject is `[DB Inspection] MySQL Inspection Summary`. The body includes Q1~Q6 sections with a description and a table.
 
 ## 10) (Optional) Schedule daily runs
 
