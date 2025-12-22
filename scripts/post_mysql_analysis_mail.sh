@@ -36,24 +36,22 @@ EMAIL_SMTPHOST="${EMAIL_SMTPHOST:-smtp.qq.com}"
 SMTP_SERVER="${EMAIL_SMTPHOST}:587"
 EMAIL_TITLE="${EMAIL_TITLE:-[Report] Inspection Server}"
 
-# ========== 1. 配置 6 个表格的描述和对应 TSV 文件路径 ==========
+# ========== 1. 配置 5 个表格的描述和对应 TSV 文件路径 ==========
 
 SECTION_TITLES=(
   "1. Q1 - 巡检失败实例明细（最新失败）"
   "2. Q2 - 各环境容量汇总（最新 vs 上一次，仅成功实例）"
   "3. Q3 - 实例容量最近 vs 上一次（含 data/index/total 差异）"
-  "4. Q4 - 库维度当前容量 Top5（每实例）"
-  "5. Q5 - 表维度当前容量 Top10（每实例）"
-  "6. Q6 - 表维度近两次容量差异 Top10（每实例）"
+  "4. Q4 - 表维度当前容量 Top10"
+  "5. Q5 - 表维度近两次容量差异 Top10"
 )
 
 SECTION_FILES=(
   "${OUT_DIR}/q1_failed_instances.tsv"
   "${OUT_DIR}/q2_env_summary.tsv"
   "${OUT_DIR}/q3_instance_last_vs_prev.tsv"
-  "${OUT_DIR}/q4_schema_top5.tsv"
-  "${OUT_DIR}/q5_table_top10.tsv"
-  "${OUT_DIR}/q6_table_diff_top10.tsv"
+  "${OUT_DIR}/q5_table_last_vs_prev.tsv"
+  "${OUT_DIR}/q6_table_diff_top.tsv"
 )
 
 # ========== 2. HTML 生成工具函数 ==========
