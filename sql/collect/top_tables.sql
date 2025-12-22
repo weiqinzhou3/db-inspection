@@ -14,6 +14,15 @@ SELECT
 FROM information_schema.tables t
 JOIN (SELECT @rk := 0) r
 WHERE t.table_type = 'BASE TABLE'
-  AND t.table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys', 'mysql_innodb_cluster_metadata')
-ORDER BY total_bytes DESC
-LIMIT 20;
+  AND t.table_schema NOT IN (
+    'mysql',
+    'information_schema',
+    'performance_schema',
+    'sys',
+    'mysql_innodb_cluster_metadata'
+  )
+  AND (
+    t.table_rows > 5000000
+    OR (IFNULL(t.DATA_LENGTH, 0) + IFNULL(t.INDEX_LENGTH, 0)) > 50 * 1024 * 1024 * 1024
+  )
+ORDER BY total_bytes DESC;

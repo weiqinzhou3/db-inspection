@@ -165,7 +165,7 @@ SQL
 )" > "${OUT_DIR}/q3_instance_last_vs_prev.tsv"
 echo "exported Q3 to ${OUT_DIR}/q3_instance_last_vs_prev.tsv"
 
-# Q5
+# Q4
 mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" --batch --raw -e "$(cat <<SQL
 SELECT
   io.env,
@@ -283,7 +283,7 @@ SQL
 )" > "${OUT_DIR}/q5_table_last_vs_prev.tsv"
 echo "exported Q5 to ${OUT_DIR}/q5_table_last_vs_prev.tsv"
 
-# Q6
+# Q5
 mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" --batch --raw -e "$(cat <<SQL
 SELECT
   io.env,

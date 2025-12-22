@@ -90,7 +90,7 @@ while IFS=$'\t' read -r instance_id login_path; do
     if ! topn_out="$(
       {
       printf 'SET @instance_id:=%s;\n' "$instance_id"
-      cat "$projectDir/sql/collect/top20_tables.sql"
+      cat "$projectDir/sql/collect/top_tables.sql"
     } | mysql --login-path="$login_path" --batch --raw -N 2>&1
   )"; then
       instance_error="topn: $topn_out"
