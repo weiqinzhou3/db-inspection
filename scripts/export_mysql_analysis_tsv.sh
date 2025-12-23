@@ -277,8 +277,7 @@ FROM (
     AND prev_tbl.table_name = last_tbl.table_name
     AND prev_tbl.stat_time = inst.prev_time
 ) io
-ORDER BY io.last_total_bytes DESC, io.env, io.alias_name, io.schema_name, io.table_name
-LIMIT 10;
+ORDER BY io.last_total_bytes DESC, io.env, io.alias_name, io.schema_name, io.table_name;
 SQL
 )" > "${OUT_DIR}/q5_table_last_vs_prev.tsv"
 echo "exported Q5 to ${OUT_DIR}/q5_table_last_vs_prev.tsv"
@@ -400,8 +399,7 @@ ORDER BY ABS(io.last_total_bytes - io.prev_total_bytes) DESC,
   io.alias_name,
   io.instance_name,
   io.schema_name,
-  io.table_name
-LIMIT 10;
+  io.table_name;
 SQL
 )" > "${OUT_DIR}/q6_table_diff_top.tsv"
 echo "exported Q6 to ${OUT_DIR}/q6_table_diff_top.tsv"
