@@ -14,13 +14,13 @@ SELECT
   s.mysql_version,
   s.collect_status AS last_collect_status,
   s.error_msg
-FROM ops_inspection.snap_mysql_instance_storage s
+FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
 JOIN (
   SELECT instance_id, MAX(stat_time) AS stat_time
-  FROM ops_inspection.snap_mysql_instance_storage
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
   GROUP BY instance_id
 ) ls ON s.instance_id = ls.instance_id AND s.stat_time = ls.stat_time
-JOIN ops_inspection.asset_instance a ON CAST(a.instance_id AS CHAR) = s.instance_id
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a ON CAST(a.instance_id AS CHAR) = s.instance_id
 WHERE a.is_active = 1
   AND s.collect_status = 'failed'
 ORDER BY s.stat_time DESC, a.env, a.instance_name;
@@ -50,25 +50,25 @@ FROM (
   FROM (
     -- 每个实例“最新一条记录”（不区分 OK/failed）
     SELECT instance_id, MAX(stat_time) AS last_time
-    FROM ops_inspection.snap_mysql_instance_storage
+    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
     GROUP BY instance_id
   ) AS t
   -- 只保留“最新一条是 OK”的实例
-  JOIN ops_inspection.snap_mysql_instance_storage AS last_rec
+  JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} AS last_rec
     ON last_rec.instance_id    = t.instance_id
    AND last_rec.stat_time      = t.last_time
    AND last_rec.collect_status = 'ok'
   -- 找“上一次成功”的记录（早于 last_time 且 collect_status='ok'）
-  LEFT JOIN ops_inspection.snap_mysql_instance_storage AS prev_rec
+  LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} AS prev_rec
     ON prev_rec.instance_id = t.instance_id
    AND prev_rec.stat_time   = (
          SELECT MAX(s2.stat_time)
-         FROM ops_inspection.snap_mysql_instance_storage s2
+         FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s2
          WHERE s2.instance_id    = t.instance_id
            AND s2.stat_time      < t.last_time
            AND s2.collect_status = 'ok'
        )
-  JOIN ops_inspection.asset_instance AS a
+  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} AS a
     ON a.instance_id = t.instance_id
    AND a.is_active   = 1
    AND a.type        = 'mysql'
@@ -140,31 +140,34 @@ FROM (
   FROM (
     -- 每个实例的“最新一条记录”（不管成功/失败）
     SELECT instance_id, MAX(stat_time) AS last_time
-    FROM ops_inspection.snap_mysql_instance_storage
+    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
     GROUP BY instance_id
   ) t
   -- 要求“最新一条记录是 OK”
-  JOIN ops_inspection.snap_mysql_instance_storage last_rec
+  JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} last_rec
     ON last_rec.instance_id = t.instance_id
    AND last_rec.stat_time   = t.last_time
    AND last_rec.collect_status = 'ok'
   -- 找“上一次成功”的记录
-  LEFT JOIN ops_inspection.snap_mysql_instance_storage prev_rec
+  LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} prev_rec
     ON prev_rec.instance_id = t.instance_id
    AND prev_rec.stat_time   = (
          SELECT MAX(s2.stat_time)
-         FROM ops_inspection.snap_mysql_instance_storage s2
+         FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s2
          WHERE s2.instance_id     = t.instance_id
            AND s2.stat_time       < t.last_time
            AND s2.collect_status  = 'ok'
        )
-  JOIN ops_inspection.asset_instance a
+  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON a.instance_id = t.instance_id
    AND a.is_active   = 1
    AND a.type        = 'mysql'
 ) AS io
 ORDER BY
-  last_total_gb DESC,
+  CASE
+    WHEN io.prev_total_bytes IS NULL THEN 0
+    ELSE ABS(io.diff_total_bytes)
+  END DESC,
   io.env,
   io.instance_name;
 
@@ -188,24 +191,24 @@ SELECT
   ROUND(cur.data_bytes  / POW(1024, 3), 2) AS last_data_gb,
   ROUND(cur.index_bytes / POW(1024, 3), 2) AS last_index_gb,
   ROUND(cur.total_bytes / POW(1024, 3), 2) AS last_total_gb
-FROM ops_inspection.snap_mysql_table_topn cur
-JOIN ops_inspection.asset_instance a
+FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} cur
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
   ON a.instance_id = cur.instance_id
  AND a.is_active   = 1
  AND a.type        = 'mysql'
 -- 只保留“最后一次实例巡检为 OK 的实例”
-JOIN ops_inspection.snap_mysql_instance_storage s_last
+JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s_last
   ON s_last.instance_id = cur.instance_id
  AND s_last.stat_time = (
        SELECT MAX(s2.stat_time)
-       FROM ops_inspection.snap_mysql_instance_storage s2
+       FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s2
        WHERE s2.instance_id = cur.instance_id
      )
  AND s_last.collect_status = 'ok'
 -- 当前这条是该表的最新快照
 WHERE cur.stat_time = (
         SELECT MAX(c2.stat_time)
-        FROM ops_inspection.snap_mysql_table_topn c2
+        FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} c2
         WHERE c2.instance_id = cur.instance_id
           AND c2.schema_name = cur.schema_name
           AND c2.table_name  = cur.table_name
@@ -287,28 +290,28 @@ FROM (
     prev.data_bytes  AS prev_data_bytes,
     prev.index_bytes AS prev_index_bytes,
     prev.total_bytes AS prev_total_bytes
-  FROM ops_inspection.snap_mysql_table_topn cur
-  JOIN ops_inspection.asset_instance a
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} cur
+  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON a.instance_id = cur.instance_id
    AND a.is_active   = 1
    AND a.type        = 'mysql'
   -- 只保留“最后一次实例巡检为 OK 的实例”
-  JOIN ops_inspection.snap_mysql_instance_storage s_last
+  JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s_last
     ON s_last.instance_id = cur.instance_id
    AND s_last.stat_time = (
          SELECT MAX(s2.stat_time)
-         FROM ops_inspection.snap_mysql_instance_storage s2
+         FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s2
          WHERE s2.instance_id = cur.instance_id
        )
    AND s_last.collect_status = 'ok'
   -- 找表的“上一次”快照（小于当前 stat_time 的最大一条）
-  LEFT JOIN ops_inspection.snap_mysql_table_topn prev
+  LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} prev
     ON prev.instance_id = cur.instance_id
    AND prev.schema_name = cur.schema_name
    AND prev.table_name  = cur.table_name
    AND prev.stat_time   = (
          SELECT MAX(p2.stat_time)
-         FROM ops_inspection.snap_mysql_table_topn p2
+         FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} p2
          WHERE p2.instance_id = cur.instance_id
            AND p2.schema_name = cur.schema_name
            AND p2.table_name  = cur.table_name
@@ -317,19 +320,10 @@ FROM (
   -- 当前这条是该表的最新快照
   WHERE cur.stat_time = (
           SELECT MAX(c2.stat_time)
-          FROM ops_inspection.snap_mysql_table_topn c2
+          FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} c2
           WHERE c2.instance_id = cur.instance_id
             AND c2.schema_name = cur.schema_name
             AND c2.table_name  = cur.table_name
         )
 ) AS io
-ORDER BY
-  CASE
-    WHEN io.prev_total_bytes IS NULL THEN 0
-    ELSE ABS(io.last_total_bytes - io.prev_total_bytes)
-  END DESC,
-  io.env,
-  io.alias_name,
-  io.instance_name,
-  io.schema_name,
-  io.table_name;
+ORDER BY io.last_total_bytes DESC, io.env, io.alias_name, io.schema_name, io.table_name;

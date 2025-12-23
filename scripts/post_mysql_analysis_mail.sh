@@ -50,8 +50,8 @@ SECTION_FILES=(
   "${OUT_DIR}/q1_failed_instances.tsv"
   "${OUT_DIR}/q2_env_summary.tsv"
   "${OUT_DIR}/q3_instance_last_vs_prev.tsv"
-  "${OUT_DIR}/q5_table_last_vs_prev.tsv"
-  "${OUT_DIR}/q6_table_diff_top.tsv"
+  "${OUT_DIR}/q4_table_last.tsv"
+  "${OUT_DIR}/q5_table_diff.tsv"
 )
 
 # ========== 2. HTML 生成工具函数 ==========

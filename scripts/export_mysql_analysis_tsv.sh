@@ -54,47 +54,51 @@ echo "exported Q1 to ${OUT_DIR}/q1_failed_instances.tsv"
 # Q2
 mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" --batch --raw -e "$(cat <<SQL
 SELECT
-  env,
+  inst_ok.env,
   COUNT(*) AS instance_count,
-  ROUND(SUM(last_total_bytes) / POW(1024, 3), 2) AS last_env_total_gb,
-  ROUND(SUM(prev_total_bytes) / POW(1024, 3), 2) AS prev_env_total_gb,
+  ROUND(SUM(inst_ok.last_total_bytes) / POW(1024, 3), 2) AS last_env_total_gb,
+  ROUND(IFNULL(SUM(inst_ok.prev_total_bytes), 0) / POW(1024, 3), 2) AS prev_env_total_gb,
   CASE
-    WHEN SUM(last_total_bytes - prev_total_bytes) > 0 THEN CONCAT('+', ROUND(SUM(last_total_bytes - prev_total_bytes) / POW(1024, 3), 2))
-    WHEN SUM(last_total_bytes - prev_total_bytes) < 0 THEN CONCAT('-', ROUND(ABS(SUM(last_total_bytes - prev_total_bytes)) / POW(1024, 3), 2))
+    WHEN SUM(inst_ok.prev_total_bytes IS NOT NULL) = 0 THEN '-'
+    WHEN SUM(inst_ok.last_total_bytes - inst_ok.prev_total_bytes) > 0
+      THEN CONCAT('+', ROUND(SUM(inst_ok.last_total_bytes - inst_ok.prev_total_bytes) / POW(1024, 3), 2))
+    WHEN SUM(inst_ok.last_total_bytes - inst_ok.prev_total_bytes) < 0
+      THEN CONCAT('-', ROUND(ABS(SUM(inst_ok.last_total_bytes - inst_ok.prev_total_bytes)) / POW(1024, 3), 2))
     ELSE '0'
   END AS diff_env_total_gb_fmt
 FROM (
   SELECT
     CASE WHEN a.env IS NULL OR a.env = '' THEN '-' ELSE a.env END AS env,
-    last_rec.instance_id,
+    t.instance_id,
     last_rec.logical_total_bytes AS last_total_bytes,
-    IFNULL(prev_rec.logical_total_bytes, 0) AS prev_total_bytes
+    prev_rec.logical_total_bytes AS prev_total_bytes
   FROM (
     SELECT instance_id, MAX(stat_time) AS last_time
     FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
-    WHERE collect_status = 'ok'
     GROUP BY instance_id
-  ) lt
-  JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} last_rec
-    ON last_rec.instance_id = lt.instance_id AND last_rec.stat_time = lt.last_time
-  LEFT JOIN (
-    SELECT s.instance_id, MAX(s.stat_time) AS prev_time
-    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
-    JOIN (
-      SELECT instance_id, MAX(stat_time) AS last_time
-      FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
-      WHERE collect_status = 'ok'
-      GROUP BY instance_id
-    ) l2 ON s.instance_id = l2.instance_id AND s.stat_time < l2.last_time AND s.collect_status = 'ok'
-    GROUP BY s.instance_id
-  ) pt ON pt.instance_id = lt.instance_id
-  LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} prev_rec
-    ON prev_rec.instance_id = pt.instance_id AND prev_rec.stat_time = pt.prev_time
-  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a ON CAST(a.instance_id AS CHAR) = lt.instance_id
-  WHERE a.is_active = 1
-) inst_ok
-GROUP BY env
-ORDER BY SUM(last_total_bytes - prev_total_bytes) DESC, last_env_total_gb DESC;
+  ) AS t
+  JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} AS last_rec
+    ON last_rec.instance_id    = t.instance_id
+   AND last_rec.stat_time      = t.last_time
+   AND last_rec.collect_status = 'ok'
+  LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} AS prev_rec
+    ON prev_rec.instance_id = t.instance_id
+   AND prev_rec.stat_time   = (
+         SELECT MAX(s2.stat_time)
+         FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s2
+         WHERE s2.instance_id    = t.instance_id
+           AND s2.stat_time      < t.last_time
+           AND s2.collect_status = 'ok'
+       )
+  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} AS a
+    ON a.instance_id = t.instance_id
+   AND a.is_active   = 1
+   AND a.type        = 'mysql'
+) AS inst_ok
+GROUP BY inst_ok.env
+ORDER BY
+  SUM(inst_ok.last_total_bytes - inst_ok.prev_total_bytes) DESC,
+  last_env_total_gb DESC;
 SQL
 )" > "${OUT_DIR}/q2_env_summary.tsv"
 echo "exported Q2 to ${OUT_DIR}/q2_env_summary.tsv"
@@ -109,15 +113,36 @@ SELECT
   io.port,
   io.last_stat_time,
   io.prev_stat_time,
-  ROUND(io.last_data_bytes / POW(1024, 3), 2) AS last_data_gb,
-  ROUND(io.prev_data_bytes / POW(1024, 3), 2) AS prev_data_gb,
-  CASE WHEN io.prev_stat_time IS NULL THEN '-' WHEN io.diff_data_bytes > 0 THEN CONCAT('+', ROUND(io.diff_data_bytes / POW(1024, 3), 2)) WHEN io.diff_data_bytes < 0 THEN CONCAT('-', ROUND(ABS(io.diff_data_bytes) / POW(1024, 3), 2)) ELSE '0' END AS diff_data_gb_fmt,
+  ROUND(io.last_data_bytes  / POW(1024, 3), 2) AS last_data_gb,
+  ROUND(io.prev_data_bytes  / POW(1024, 3), 2) AS prev_data_gb,
+  CASE
+    WHEN io.prev_stat_time IS NULL THEN '-'
+    WHEN io.diff_data_bytes > 0
+      THEN CONCAT('+', ROUND(io.diff_data_bytes / POW(1024, 3), 2))
+    WHEN io.diff_data_bytes < 0
+      THEN CONCAT('-', ROUND(ABS(io.diff_data_bytes) / POW(1024, 3), 2))
+    ELSE '0'
+  END AS diff_data_gb_fmt,
   ROUND(io.last_index_bytes / POW(1024, 3), 2) AS last_index_gb,
   ROUND(io.prev_index_bytes / POW(1024, 3), 2) AS prev_index_gb,
-  CASE WHEN io.prev_stat_time IS NULL THEN '-' WHEN io.diff_index_bytes > 0 THEN CONCAT('+', ROUND(io.diff_index_bytes / POW(1024, 3), 2)) WHEN io.diff_index_bytes < 0 THEN CONCAT('-', ROUND(ABS(io.diff_index_bytes) / POW(1024, 3), 2)) ELSE '0' END AS diff_index_gb_fmt,
+  CASE
+    WHEN io.prev_stat_time IS NULL THEN '-'
+    WHEN io.diff_index_bytes > 0
+      THEN CONCAT('+', ROUND(io.diff_index_bytes / POW(1024, 3), 2))
+    WHEN io.diff_index_bytes < 0
+      THEN CONCAT('-', ROUND(ABS(io.diff_index_bytes) / POW(1024, 3), 2))
+    ELSE '0'
+  END AS diff_index_gb_fmt,
   ROUND(io.last_total_bytes / POW(1024, 3), 2) AS last_total_gb,
   ROUND(io.prev_total_bytes / POW(1024, 3), 2) AS prev_total_gb,
-  CASE WHEN io.prev_stat_time IS NULL THEN '-' WHEN io.diff_total_bytes > 0 THEN CONCAT('+', ROUND(io.diff_total_bytes / POW(1024, 3), 2)) WHEN io.diff_total_bytes < 0 THEN CONCAT('-', ROUND(ABS(io.diff_total_bytes) / POW(1024, 3), 2)) ELSE '0' END AS diff_total_gb_fmt
+  CASE
+    WHEN io.prev_stat_time IS NULL THEN '-'
+    WHEN io.diff_total_bytes > 0
+      THEN CONCAT('+', ROUND(io.diff_total_bytes / POW(1024, 3), 2))
+    WHEN io.diff_total_bytes < 0
+      THEN CONCAT('-', ROUND(ABS(io.diff_total_bytes) / POW(1024, 3), 2))
+    ELSE '0'
+  END AS diff_total_gb_fmt
 FROM (
   SELECT
     CASE WHEN a.env IS NULL OR a.env = '' THEN '-' ELSE a.env END AS env,
@@ -127,40 +152,42 @@ FROM (
     a.port,
     last_rec.stat_time AS last_stat_time,
     prev_rec.stat_time AS prev_stat_time,
-    last_rec.logical_data_bytes AS last_data_bytes,
-    IFNULL(prev_rec.logical_data_bytes, 0) AS prev_data_bytes,
-    (last_rec.logical_data_bytes - IFNULL(prev_rec.logical_data_bytes, 0)) AS diff_data_bytes,
+    last_rec.logical_data_bytes  AS last_data_bytes,
+    prev_rec.logical_data_bytes  AS prev_data_bytes,
+    (last_rec.logical_data_bytes  - prev_rec.logical_data_bytes)  AS diff_data_bytes,
     last_rec.logical_index_bytes AS last_index_bytes,
-    IFNULL(prev_rec.logical_index_bytes, 0) AS prev_index_bytes,
-    (last_rec.logical_index_bytes - IFNULL(prev_rec.logical_index_bytes, 0)) AS diff_index_bytes,
+    prev_rec.logical_index_bytes AS prev_index_bytes,
+    (last_rec.logical_index_bytes - prev_rec.logical_index_bytes) AS diff_index_bytes,
     last_rec.logical_total_bytes AS last_total_bytes,
-    IFNULL(prev_rec.logical_total_bytes, 0) AS prev_total_bytes,
-    (last_rec.logical_total_bytes - IFNULL(prev_rec.logical_total_bytes, 0)) AS diff_total_bytes
+    prev_rec.logical_total_bytes AS prev_total_bytes,
+    (last_rec.logical_total_bytes - prev_rec.logical_total_bytes) AS diff_total_bytes
   FROM (
     SELECT instance_id, MAX(stat_time) AS last_time
     FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
-    WHERE collect_status = 'ok'
     GROUP BY instance_id
-  ) lt
+  ) t
   JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} last_rec
-    ON last_rec.instance_id = lt.instance_id AND last_rec.stat_time = lt.last_time
-  LEFT JOIN (
-    SELECT s.instance_id, MAX(s.stat_time) AS prev_time
-    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
-    JOIN (
-      SELECT instance_id, MAX(stat_time) AS last_time
-      FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
-      WHERE collect_status = 'ok'
-      GROUP BY instance_id
-    ) l2 ON s.instance_id = l2.instance_id AND s.stat_time < l2.last_time AND s.collect_status = 'ok'
-    GROUP BY s.instance_id
-  ) pt ON pt.instance_id = lt.instance_id
+    ON last_rec.instance_id = t.instance_id
+   AND last_rec.stat_time   = t.last_time
+   AND last_rec.collect_status = 'ok'
   LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} prev_rec
-    ON prev_rec.instance_id = pt.instance_id AND prev_rec.stat_time = pt.prev_time
-  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a ON CAST(a.instance_id AS CHAR) = lt.instance_id
-  WHERE a.is_active = 1
-) io
-ORDER BY ABS(io.diff_total_bytes) DESC, io.env, io.instance_name;
+    ON prev_rec.instance_id = t.instance_id
+   AND prev_rec.stat_time   = (
+         SELECT MAX(s2.stat_time)
+         FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s2
+         WHERE s2.instance_id     = t.instance_id
+           AND s2.stat_time       < t.last_time
+           AND s2.collect_status  = 'ok'
+       )
+  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
+    ON a.instance_id = t.instance_id
+   AND a.is_active   = 1
+   AND a.type        = 'mysql'
+) AS io
+ORDER BY
+  last_total_gb DESC,
+  io.env,
+  io.instance_name;
 SQL
 )" > "${OUT_DIR}/q3_instance_last_vs_prev.tsv"
 echo "exported Q3 to ${OUT_DIR}/q3_instance_last_vs_prev.tsv"
@@ -168,119 +195,46 @@ echo "exported Q3 to ${OUT_DIR}/q3_instance_last_vs_prev.tsv"
 # Q4
 mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" --batch --raw -e "$(cat <<SQL
 SELECT
-  io.env,
-  io.alias_name,
-  io.instance_name,
-  io.schema_name,
-  io.table_name,
-  io.last_stat_time,
-  io.prev_stat_time,
-  ROUND(io.last_data_bytes / POW(1024, 3), 2) AS last_data_gb,
-  ROUND(io.last_index_bytes / POW(1024, 3), 2) AS last_index_gb,
-  ROUND(io.last_total_bytes / POW(1024, 3), 2) AS last_total_gb,
-  ROUND(io.prev_data_bytes / POW(1024, 3), 2) AS prev_data_gb,
-  ROUND(io.prev_index_bytes / POW(1024, 3), 2) AS prev_index_gb,
-  ROUND(io.prev_total_bytes / POW(1024, 3), 2) AS prev_total_gb,
-  CASE
-    WHEN io.prev_data_bytes IS NULL THEN '-'
-    WHEN (io.last_data_bytes - io.prev_data_bytes) > 0 THEN CONCAT('+', ROUND((io.last_data_bytes - io.prev_data_bytes) / POW(1024, 3), 2))
-    WHEN (io.last_data_bytes - io.prev_data_bytes) < 0 THEN CONCAT('-', ROUND(ABS(io.last_data_bytes - io.prev_data_bytes) / POW(1024, 3), 2))
-    ELSE '0'
-  END AS diff_data_gb_fmt,
-  CASE
-    WHEN io.prev_index_bytes IS NULL THEN '-'
-    WHEN (io.last_index_bytes - io.prev_index_bytes) > 0 THEN CONCAT('+', ROUND((io.last_index_bytes - io.prev_index_bytes) / POW(1024, 3), 2))
-    WHEN (io.last_index_bytes - io.prev_index_bytes) < 0 THEN CONCAT('-', ROUND(ABS(io.last_index_bytes - io.prev_index_bytes) / POW(1024, 3), 2))
-    ELSE '0'
-  END AS diff_index_gb_fmt,
-  CASE
-    WHEN io.prev_total_bytes IS NULL THEN '-'
-    WHEN (io.last_total_bytes - io.prev_total_bytes) > 0 THEN CONCAT('+', ROUND((io.last_total_bytes - io.prev_total_bytes) / POW(1024, 3), 2))
-    WHEN (io.last_total_bytes - io.prev_total_bytes) < 0 THEN CONCAT('-', ROUND(ABS(io.last_total_bytes - io.prev_total_bytes) / POW(1024, 3), 2))
-    ELSE '0'
-  END AS diff_total_gb_fmt
-FROM (
-  SELECT
-    inst.env,
-    inst.alias_name,
-    inst.instance_name,
-    inst.instance_id,
-    inst.last_time AS last_stat_time,
-    inst.prev_time AS prev_stat_time,
-    last_tbl.schema_name,
-    last_tbl.table_name,
-    last_tbl.data_bytes AS last_data_bytes,
-    last_tbl.index_bytes AS last_index_bytes,
-    last_tbl.total_bytes AS last_total_bytes,
-    prev_tbl.data_bytes AS prev_data_bytes,
-    prev_tbl.index_bytes AS prev_index_bytes,
-    prev_tbl.total_bytes AS prev_total_bytes
-  FROM (
-    SELECT
-      CAST(a.instance_id AS CHAR) AS instance_id,
-      CASE WHEN a.env IS NULL OR a.env = '' THEN '-' ELSE a.env END AS env,
-      a.alias_name,
-      a.instance_name,
-      lt.last_time,
-      pt.prev_time
-    FROM (
-      SELECT instance_id, MAX(stat_time) AS last_time
-      FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
-      WHERE collect_status = 'ok'
-      GROUP BY instance_id
-    ) lt
-    LEFT JOIN (
-      SELECT
-        s.instance_id,
-        MAX(s.stat_time) AS prev_time
-      FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
-      JOIN (
-        SELECT instance_id, MAX(stat_time) AS last_time
-        FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
-        WHERE collect_status = 'ok'
-        GROUP BY instance_id
-      ) l2 ON l2.instance_id = s.instance_id
-        AND s.stat_time < l2.last_time
-        AND s.collect_status = 'ok'
-      GROUP BY s.instance_id
-    ) pt ON pt.instance_id = lt.instance_id
-    JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a ON CAST(a.instance_id AS CHAR) = lt.instance_id
-    WHERE a.is_active = 1
-      AND a.type = 'mysql'
-  ) inst
-  JOIN (
-    SELECT
-      instance_id,
-      schema_name,
-      table_name,
-      stat_time,
-      SUM(data_bytes) AS data_bytes,
-      SUM(index_bytes) AS index_bytes,
-      SUM(total_bytes) AS total_bytes
-    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN}
-    GROUP BY instance_id, schema_name, table_name, stat_time
-  ) last_tbl ON last_tbl.instance_id = inst.instance_id
-    AND last_tbl.stat_time = inst.last_time
-  LEFT JOIN (
-    SELECT
-      instance_id,
-      schema_name,
-      table_name,
-      stat_time,
-      SUM(data_bytes) AS data_bytes,
-      SUM(index_bytes) AS index_bytes,
-      SUM(total_bytes) AS total_bytes
-    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN}
-    GROUP BY instance_id, schema_name, table_name, stat_time
-  ) prev_tbl ON prev_tbl.instance_id = inst.instance_id
-    AND prev_tbl.schema_name = last_tbl.schema_name
-    AND prev_tbl.table_name = last_tbl.table_name
-    AND prev_tbl.stat_time = inst.prev_time
-) io
-ORDER BY io.last_total_bytes DESC, io.env, io.alias_name, io.schema_name, io.table_name;
+  CASE WHEN a.env IS NULL OR a.env = '' THEN '-' ELSE a.env END AS env,
+  a.alias_name,
+  a.instance_name,
+  cur.schema_name,
+  cur.table_name,
+  cur.stat_time    AS last_stat_time,
+  cur.table_rows   AS last_table_rows,
+  ROUND(cur.data_bytes  / POW(1024, 3), 2) AS last_data_gb,
+  ROUND(cur.index_bytes / POW(1024, 3), 2) AS last_index_gb,
+  ROUND(cur.total_bytes / POW(1024, 3), 2) AS last_total_gb
+FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} cur
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
+  ON a.instance_id = cur.instance_id
+ AND a.is_active   = 1
+ AND a.type        = 'mysql'
+JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s_last
+  ON s_last.instance_id = cur.instance_id
+ AND s_last.stat_time = (
+       SELECT MAX(s2.stat_time)
+       FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s2
+       WHERE s2.instance_id = cur.instance_id
+     )
+ AND s_last.collect_status = 'ok'
+WHERE cur.stat_time = (
+        SELECT MAX(c2.stat_time)
+        FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} c2
+        WHERE c2.instance_id = cur.instance_id
+          AND c2.schema_name = cur.schema_name
+          AND c2.table_name  = cur.table_name
+      )
+ORDER BY
+  cur.total_bytes DESC,
+  env,
+  a.alias_name,
+  a.instance_name,
+  cur.schema_name,
+  cur.table_name;
 SQL
-)" > "${OUT_DIR}/q5_table_last_vs_prev.tsv"
-echo "exported Q5 to ${OUT_DIR}/q5_table_last_vs_prev.tsv"
+)" > "${OUT_DIR}/q4_table_last.tsv"
+echo "exported Q4 to ${OUT_DIR}/q4_table_last.tsv"
 
 # Q5
 mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" --batch --raw -e "$(cat <<SQL
@@ -292,114 +246,109 @@ SELECT
   io.table_name,
   io.last_stat_time,
   io.prev_stat_time,
-  ROUND(io.last_data_bytes / POW(1024, 3), 2) AS last_data_gb,
-  ROUND(io.last_index_bytes / POW(1024, 3), 2) AS last_index_gb,
-  ROUND(io.last_total_bytes / POW(1024, 3), 2) AS last_total_gb,
-  ROUND(io.prev_data_bytes / POW(1024, 3), 2) AS prev_data_gb,
-  ROUND(io.prev_index_bytes / POW(1024, 3), 2) AS prev_index_gb,
-  ROUND(io.prev_total_bytes / POW(1024, 3), 2) AS prev_total_gb,
+  io.last_table_rows,
+  io.prev_table_rows,
+  CASE
+    WHEN io.prev_table_rows IS NULL THEN '-'
+    WHEN (io.last_table_rows - io.prev_table_rows) > 0
+      THEN CONCAT('+', (io.last_table_rows - io.prev_table_rows))
+    WHEN (io.last_table_rows - io.prev_table_rows) < 0
+      THEN CONCAT('-', ABS(io.last_table_rows - io.prev_table_rows))
+    ELSE '0'
+  END AS diff_table_rows_fmt,
+  ROUND(io.last_data_bytes  / POW(1024, 3), 2) AS last_data_gb,
+  ROUND(io.prev_data_bytes  / POW(1024, 3), 2) AS prev_data_gb,
   CASE
     WHEN io.prev_data_bytes IS NULL THEN '-'
-    WHEN (io.last_data_bytes - io.prev_data_bytes) > 0 THEN CONCAT('+', ROUND((io.last_data_bytes - io.prev_data_bytes) / POW(1024, 3), 2))
-    WHEN (io.last_data_bytes - io.prev_data_bytes) < 0 THEN CONCAT('-', ROUND(ABS(io.last_data_bytes - io.prev_data_bytes) / POW(1024, 3), 2))
+    WHEN (io.last_data_bytes - io.prev_data_bytes) > 0
+      THEN CONCAT('+', ROUND((io.last_data_bytes - io.prev_data_bytes) / POW(1024, 3), 2))
+    WHEN (io.last_data_bytes - io.prev_data_bytes) < 0
+      THEN CONCAT('-', ROUND(ABS(io.last_data_bytes - io.prev_data_bytes) / POW(1024, 3), 2))
     ELSE '0'
   END AS diff_data_gb_fmt,
+  ROUND(io.last_index_bytes / POW(1024, 3), 2) AS last_index_gb,
+  ROUND(io.prev_index_bytes / POW(1024, 3), 2) AS prev_index_gb,
   CASE
     WHEN io.prev_index_bytes IS NULL THEN '-'
-    WHEN (io.last_index_bytes - io.prev_index_bytes) > 0 THEN CONCAT('+', ROUND((io.last_index_bytes - io.prev_index_bytes) / POW(1024, 3), 2))
-    WHEN (io.last_index_bytes - io.prev_index_bytes) < 0 THEN CONCAT('-', ROUND(ABS(io.last_index_bytes - io.prev_index_bytes) / POW(1024, 3), 2))
+    WHEN (io.last_index_bytes - io.prev_index_bytes) > 0
+      THEN CONCAT('+', ROUND((io.last_index_bytes - io.prev_index_bytes) / POW(1024, 3), 2))
+    WHEN (io.last_index_bytes - io.prev_index_bytes) < 0
+      THEN CONCAT('-', ROUND(ABS(io.last_index_bytes - io.prev_index_bytes) / POW(1024, 3), 2))
     ELSE '0'
   END AS diff_index_gb_fmt,
+  ROUND(io.last_total_bytes / POW(1024, 3), 2) AS last_total_gb,
+  ROUND(io.prev_total_bytes / POW(1024, 3), 2) AS prev_total_gb,
   CASE
     WHEN io.prev_total_bytes IS NULL THEN '-'
-    WHEN (io.last_total_bytes - io.prev_total_bytes) > 0 THEN CONCAT('+', ROUND((io.last_total_bytes - io.prev_total_bytes) / POW(1024, 3), 2))
-    WHEN (io.last_total_bytes - io.prev_total_bytes) < 0 THEN CONCAT('-', ROUND(ABS(io.last_total_bytes - io.prev_total_bytes) / POW(1024, 3), 2))
+    WHEN (io.last_total_bytes - io.prev_total_bytes) > 0
+      THEN CONCAT('+', ROUND((io.last_total_bytes - io.prev_total_bytes) / POW(1024, 3), 2))
+    WHEN (io.last_total_bytes - io.prev_total_bytes) < 0
+      THEN CONCAT('-', ROUND(ABS(io.last_total_bytes - io.prev_total_bytes) / POW(1024, 3), 2))
     ELSE '0'
   END AS diff_total_gb_fmt
 FROM (
   SELECT
-    inst.env,
-    inst.alias_name,
-    inst.instance_name,
-    inst.instance_id,
-    inst.last_time AS last_stat_time,
-    inst.prev_time AS prev_stat_time,
-    last_tbl.schema_name,
-    last_tbl.table_name,
-    last_tbl.data_bytes AS last_data_bytes,
-    last_tbl.index_bytes AS last_index_bytes,
-    last_tbl.total_bytes AS last_total_bytes,
-    prev_tbl.data_bytes AS prev_data_bytes,
-    prev_tbl.index_bytes AS prev_index_bytes,
-    prev_tbl.total_bytes AS prev_total_bytes
-  FROM (
-    SELECT
-      CAST(a.instance_id AS CHAR) AS instance_id,
-      CASE WHEN a.env IS NULL OR a.env = '' THEN '-' ELSE a.env END AS env,
-      a.alias_name,
-      a.instance_name,
-      lt.last_time,
-      pt.prev_time
-    FROM (
-      SELECT instance_id, MAX(stat_time) AS last_time
-      FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
-      WHERE collect_status = 'ok'
-      GROUP BY instance_id
-    ) lt
-    LEFT JOIN (
-      SELECT
-        s.instance_id,
-        MAX(s.stat_time) AS prev_time
-      FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s
-      JOIN (
-        SELECT instance_id, MAX(stat_time) AS last_time
-        FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE}
-        WHERE collect_status = 'ok'
-        GROUP BY instance_id
-      ) l2 ON l2.instance_id = s.instance_id
-        AND s.stat_time < l2.last_time
-        AND s.collect_status = 'ok'
-      GROUP BY s.instance_id
-    ) pt ON pt.instance_id = lt.instance_id
-    JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a ON CAST(a.instance_id AS CHAR) = lt.instance_id
-    WHERE a.is_active = 1
-      AND a.type = 'mysql'
-  ) inst
-  JOIN (
-    SELECT
-      instance_id,
-      schema_name,
-      table_name,
-      stat_time,
-      SUM(data_bytes) AS data_bytes,
-      SUM(index_bytes) AS index_bytes,
-      SUM(total_bytes) AS total_bytes
-    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN}
-    GROUP BY instance_id, schema_name, table_name, stat_time
-  ) last_tbl ON last_tbl.instance_id = inst.instance_id
-    AND last_tbl.stat_time = inst.last_time
-  LEFT JOIN (
-    SELECT
-      instance_id,
-      schema_name,
-      table_name,
-      stat_time,
-      SUM(data_bytes) AS data_bytes,
-      SUM(index_bytes) AS index_bytes,
-      SUM(total_bytes) AS total_bytes
-    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN}
-    GROUP BY instance_id, schema_name, table_name, stat_time
-  ) prev_tbl ON prev_tbl.instance_id = inst.instance_id
-    AND prev_tbl.schema_name = last_tbl.schema_name
-    AND prev_tbl.table_name = last_tbl.table_name
-    AND prev_tbl.stat_time = inst.prev_time
-) io
-ORDER BY ABS(io.last_total_bytes - io.prev_total_bytes) DESC,
+    CASE WHEN a.env IS NULL OR a.env = '' THEN '-' ELSE a.env END AS env,
+    a.alias_name,
+    a.instance_name,
+    cur.instance_id,
+    cur.schema_name,
+    cur.table_name,
+    cur.stat_time    AS last_stat_time,
+    cur.table_rows   AS last_table_rows,
+    cur.data_bytes   AS last_data_bytes,
+    cur.index_bytes  AS last_index_bytes,
+    cur.total_bytes  AS last_total_bytes,
+    prev.stat_time   AS prev_stat_time,
+    prev.table_rows  AS prev_table_rows,
+    prev.data_bytes  AS prev_data_bytes,
+    prev.index_bytes AS prev_index_bytes,
+    prev.total_bytes AS prev_total_bytes
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} cur
+  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
+    ON a.instance_id = cur.instance_id
+   AND a.is_active   = 1
+   AND a.type        = 'mysql'
+  JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s_last
+    ON s_last.instance_id = cur.instance_id
+   AND s_last.stat_time = (
+         SELECT MAX(s2.stat_time)
+         FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_INSTANCE_STORAGE} s2
+         WHERE s2.instance_id = cur.instance_id
+       )
+   AND s_last.collect_status = 'ok'
+  LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} prev
+    ON prev.instance_id = cur.instance_id
+   AND prev.schema_name = cur.schema_name
+   AND prev.table_name  = cur.table_name
+   AND prev.stat_time   = (
+         SELECT MAX(p2.stat_time)
+         FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} p2
+         WHERE p2.instance_id = cur.instance_id
+           AND p2.schema_name = cur.schema_name
+           AND p2.table_name  = cur.table_name
+           AND p2.stat_time   < cur.stat_time
+       )
+  WHERE cur.stat_time = (
+          SELECT MAX(c2.stat_time)
+          FROM ${OPS_INSPECTION_DB}.${T_SNAP_MYSQL_TABLE_TOPN} c2
+          WHERE c2.instance_id = cur.instance_id
+            AND c2.schema_name = cur.schema_name
+            AND c2.table_name  = cur.table_name
+        )
+) AS io
+ORDER BY
+  CASE
+    WHEN io.prev_total_bytes IS NULL THEN 0
+    ELSE ABS(io.last_total_bytes - io.prev_total_bytes)
+  END DESC,
   io.env,
   io.alias_name,
   io.instance_name,
   io.schema_name,
   io.table_name;
 SQL
-)" > "${OUT_DIR}/q6_table_diff_top.tsv"
-echo "exported Q6 to ${OUT_DIR}/q6_table_diff_top.tsv"
+)" > "${OUT_DIR}/q5_table_diff.tsv"
+echo "exported Q5 to ${OUT_DIR}/q5_table_diff.tsv"
+
+echo "All MySQL analysis TSV exports completed."
