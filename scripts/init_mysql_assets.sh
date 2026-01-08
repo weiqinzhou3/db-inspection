@@ -10,7 +10,7 @@ set -euo pipefail
 
 OPS_META_LOGIN_PATH="${OPS_META_LOGIN_PATH:-}"
 OPS_META_DB="${OPS_META_DB:-}"
-CONFIG_PATH="${CONFIG_PATH:-config/mysql-init.yaml}"
+CONFIG_PATH="${CONFIG_PATH:-config/.mysql-init.yaml}"
 
 if [[ -z "$OPS_META_LOGIN_PATH" ]]; then
   echo "OPS_META_LOGIN_PATH is required (mysql_config_editor login-path for meta DB)" >&2

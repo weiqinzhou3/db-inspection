@@ -33,17 +33,23 @@ EMAIL_SENDER="${EMAIL_SENDER:?EMAIL_SENDER is required (set env or config/mail_e
 EMAIL_USERNAME="${EMAIL_USERNAME:-${EMAIL_SENDER}}"
 EMAIL_PASSWORD="${EMAIL_PASSWORD:?EMAIL_PASSWORD is required (set env or config/mail_env.sh)}"
 EMAIL_SMTPHOST="${EMAIL_SMTPHOST:-smtp.qq.com}"
-SMTP_SERVER="${EMAIL_SMTPHOST}:587"
+
+# 只通 465：隐式 TLS (SMTPS)
+EMAIL_SMTPPORT="${EMAIL_SMTPPORT:-465}"
+SMTP_SERVER="${EMAIL_SMTPHOST}:${EMAIL_SMTPPORT}"
+
+# 邮件标题 / 发件人展示名
 EMAIL_TITLE="${EMAIL_TITLE:-[Report] Inspection Server}"
+EMAIL_FROMNAME="${EMAIL_FROMNAME:-DB Inspection}"
 
 # ========== 1. 配置 5 个表格的描述和对应 TSV 文件路径 ==========
 
 SECTION_TITLES=(
-  "1. Q1 - 巡检失败实例明细（最新失败）"
-  "2. Q2 - 各环境容量汇总（最新 vs 上一次，仅成功实例）"
-  "3. Q3 - 实例容量最近 vs 上一次（含 data/index/total 差异）"
-  "4. Q4 - 表维度当前容量 Top10"
-  "5. Q5 - 表维度近两次容量差异 Top10"
+  "1. Q1 - 巡检失败实例明细"
+  "2. Q2 - 环境纬度：容量汇总对比"
+  "3. Q3 - 实例纬度：容量汇总对比"
+  "4. Q4 - 表纬度：最近一次巡检容量汇总"
+  "5. Q5 - 表维度：容量汇总对比"
 )
 
 SECTION_FILES=(
@@ -162,23 +168,20 @@ append_section() {
   echo "    <br/>" >> "${MAIL_HTML}"
 }
 
-# ========== 3. 发邮件 ==========
-
+# ========== 3. 发邮件（465 隐式 TLS：sendmail + openssl s_client） ==========
 send_mail() {
-  local EMAIL_CONTENT
-  EMAIL_CONTENT=$(cat "${MAIL_HTML}")
-
-  sendEmail \
-    -f "$EMAIL_SENDER" \
-    -t "$EMAIL_RECIVER" \
-    -s "$SMTP_SERVER" \
-    -u "$EMAIL_TITLE" \
-    -xu "$EMAIL_USERNAME" \
-    -xp "$EMAIL_PASSWORD" \
-    -m "$EMAIL_CONTENT" \
-    -o tls=yes \
-    -o message-charset=utf-8 \
-    -o message-content-type=html
+  {
+    printf 'From: "%s" <%s>\n' "${EMAIL_FROMNAME:-Devops Platform}" "$EMAIL_SENDER"
+    printf 'To: %s\n' "$EMAIL_RECIVER"
+    printf 'Subject: %s\n' "$EMAIL_TITLE"
+    printf 'Date: %s\n' "$(date -R)"
+    printf 'MIME-Version: 1.0\n'
+    printf 'Content-Type: text/html; charset=UTF-8\n'
+    printf 'Content-Transfer-Encoding: 8bit\n'
+    printf '\n'
+    cat "${MAIL_HTML}"
+    printf '\n'
+  } | /usr/sbin/sendmail -t -f "$EMAIL_SENDER"
 }
 
 # ========== 4. 主流程 ==========

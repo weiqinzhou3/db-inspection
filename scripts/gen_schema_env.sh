@@ -40,4 +40,3 @@ fi
     done <<< "$table_lines"
   fi
 } > "$OUT"
-

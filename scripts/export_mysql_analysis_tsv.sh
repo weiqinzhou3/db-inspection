@@ -316,8 +316,8 @@ FROM (
 ) AS io
 ORDER BY
   CASE
-    WHEN io.prev_total_bytes IS NULL THEN 0
-    ELSE ABS(io.last_total_bytes - io.prev_total_bytes)
+    WHEN io.prev_table_rows IS NULL THEN 0
+    ELSE ABS(io.last_table_rows - io.prev_table_rows)
   END DESC,
   io.env,
   io.alias_name,
