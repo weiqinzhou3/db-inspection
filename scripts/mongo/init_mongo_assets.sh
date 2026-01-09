@@ -189,7 +189,7 @@ parse_mongo_host_port() {
 
 encrypt_mongo_uri() {
   local uri="$1"
-  printf "%s" "$uri" | openssl enc -aes-256-cbc -base64 -K "$MONGO_AES_KEY_HEX" -iv "$MONGO_AES_IV_HEX"
+  printf "%s" "$uri" | openssl enc -aes-256-cbc -base64 -A -K "$MONGO_AES_KEY_HEX" -iv "$MONGO_AES_IV_HEX"
 }
 
 records="$(parse_yaml "$CONFIG_PATH")"
