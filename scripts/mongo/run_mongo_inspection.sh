@@ -53,9 +53,19 @@ sql_escape() {
   printf '%s' "$s"
 }
 
+normalize_stat_time() {
+  local t="$1"
+  if [[ "$t" == *"T"* ]]; then
+    t="${t/T/ }"
+    t="${t%%.*}"
+    t="${t%Z}"
+  fi
+  printf '%s' "$t"
+}
+
 decrypt_mongo_uri() {
   local enc="$1"
-  printf "%s" "$enc" | openssl enc -d -aes-256-cbc -base64 -K "$MONGO_AES_KEY_HEX" -iv "$MONGO_AES_IV_HEX"
+  printf "%s" "$enc" | tr -d '\r\n ' | openssl enc -d -aes-256-cbc -base64 -A -K "$MONGO_AES_KEY_HEX" -iv "$MONGO_AES_IV_HEX" 2>/dev/null
 }
 
 success=0
@@ -85,11 +95,11 @@ while IFS=$'\t' read -r instance_id env alias_name instance_name mongo_uri_enc; 
   dec_out=""
   dec_rc=0
   set +e
-  dec_out="$(decrypt_mongo_uri "$mongo_uri_enc" 2>&1)"
+  dec_out="$(decrypt_mongo_uri "$mongo_uri_enc")"
   dec_rc=$?
   set -e
   if [[ $dec_rc -ne 0 || -z "$dec_out" ]]; then
-    instance_error="decrypt_failed: ${dec_out}"
+    instance_error="decrypt_failed"
   else
     uri="$dec_out"
   fi
@@ -106,13 +116,21 @@ while IFS=$'\t' read -r instance_id env alias_name instance_name mongo_uri_enc; 
   fi
 
   if [[ ${summary_rc} -ne 0 || -z "${summary_out}" ]]; then
-    if [[ -n "${instance_error}" ]]; then
-      instance_error+=$'; '
+    if [[ -z "${instance_error}" ]]; then
+      instance_error="summary_failed"
     fi
-    instance_error+="summary_failed: ${summary_out}"
   else
-    summary_line="$(printf "%s\n" "$summary_out" | head -n 1)"
+    summary_line="$(printf "%s\n" "$summary_out" | awk -F'\t' 'NF>=6{line=$0} END{print line}')"
     IFS=$'\t' read -r stat_time logical_data logical_index logical_total physical_total mongo_version <<<"${summary_line}"
+    if [[ -z "$stat_time" || -z "$logical_data" || -z "$logical_index" || -z "$logical_total" || -z "$physical_total" ]]; then
+      summary_rc=1
+      stat_time=""
+      if [[ -z "${instance_error}" ]]; then
+        instance_error="summary_failed"
+      fi
+    else
+      stat_time="$(normalize_stat_time "$stat_time")"
+    fi
   fi
 
   topn_out=""
@@ -126,16 +144,17 @@ while IFS=$'\t' read -r instance_id env alias_name instance_name mongo_uri_enc; 
     topn_rc=1
   fi
 
-  if [[ ${topn_rc} -ne 0 ]]; then
-    if [[ -n "${instance_error}" ]]; then
-      instance_error+=$'; '
+  if [[ -n "$uri" && ${topn_rc} -ne 0 ]]; then
+    if [[ -z "${instance_error}" ]]; then
+      instance_error="collection_failed"
+    elif [[ "${instance_error}" != *"collection_failed"* ]]; then
+      instance_error="${instance_error}; collection_failed"
     fi
-    instance_error+="collection_failed: ${topn_out}"
   fi
 
   collect_status="ok"
   error_msg_sql="NULL"
-  mongo_version_sql="NULL"
+  mongo_version_sql="''"
 
   if [[ ${summary_rc} -ne 0 || -z "${stat_time}" ]]; then
     collect_status="failed"
@@ -185,12 +204,17 @@ EOF
 
   if [[ "${collect_status}" == "ok" && ${topn_rc} -eq 0 && -n "${topn_out}" ]]; then
     while IFS=$'\t' read -r t_stat db_name coll_name doc_count data_bytes index_bytes logical_total_bytes physical_total_bytes; do
-      if [[ -z "${db_name:-}" || -z "${coll_name:-}" ]]; then
+      if [[ -z "${t_stat:-}" || -z "${db_name:-}" || -z "${coll_name:-}" || -z "${doc_count:-}" ]]; then
         continue
       fi
 
       esc_db_name="$(sql_escape "${db_name}")"
       esc_coll_name="$(sql_escape "${coll_name}")"
+
+      t_stat="$(normalize_stat_time "$t_stat")"
+      if [[ -z "${t_stat}" ]]; then
+        continue
+      fi
 
       topn_insert_sql=$(
         cat <<EOF
@@ -240,7 +264,7 @@ SELECT i.instance_id,
        COALESCE(i.env, '') AS env,
        COALESCE(i.alias_name, '') AS alias_name,
        COALESCE(i.instance_name, '') AS instance_name,
-       i.login_path AS mongo_uri_enc
+       REPLACE(REPLACE(i.login_path, '\n', ''), '\r', '') AS mongo_uri_enc
 FROM ${T_ASSET_INSTANCE} i
 WHERE i.type='mongo'
   AND i.is_active=1
