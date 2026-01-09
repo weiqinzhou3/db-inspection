@@ -38,7 +38,6 @@ DB_NAME="${OPS_META_DB:-$OPS_INSPECTION_DB}"
 echo "[INIT] projectDir=${projectDir}"
 echo "[INIT] OPS_META_LOGIN_PATH=${OPS_META_LOGIN_PATH} DB_NAME=${DB_NAME}"
 echo "[INIT] T_ASSET_INSTANCE=${T_ASSET_INSTANCE}"
-echo "[INIT] T_ASSET_MONGO_CONN=${T_ASSET_MONGO_CONN}"
 echo "[INIT] T_SNAP_MONGO_INSTANCE_STORAGE=${T_SNAP_MONGO_INSTANCE_STORAGE}"
 echo "[INIT] T_SNAP_MONGO_COLLECTION_TOPN=${T_SNAP_MONGO_COLLECTION_TOPN}"
 
@@ -65,14 +64,14 @@ has_assets=false
 
 echo "[FETCH] Loading active MongoDB assets from ${DB_NAME}.${T_ASSET_INSTANCE}"
 
-while IFS=$'\t' read -r instance_id env alias_name instance_name conn_name mongo_uri_enc; do
+while IFS=$'\t' read -r instance_id env alias_name instance_name mongo_uri_enc; do
   if [[ -z "${instance_id:-}" ]]; then
     continue
   fi
   has_assets=true
 
   echo "================ INSTANCE BEGIN ================"
-  echo "[RUN] instance_id=${instance_id} env=${env:-} alias=${alias_name:-} instance=${instance_name:-} conn_name=${conn_name:-}"
+  echo "[RUN] instance_id=${instance_id} env=${env:-} alias=${alias_name:-} instance=${instance_name:-}"
 
   instance_error=""
   stat_time=""
@@ -229,7 +228,7 @@ EOF
     ((failed++))
   fi
 
-  echo "[RESULT] instance_id=${instance_id} conn_name=${conn_name:-} => ${collect_status}"
+  echo "[RESULT] instance_id=${instance_id} => ${collect_status}"
   echo "================ INSTANCE END =================="
   echo
 done < <(
@@ -241,12 +240,12 @@ SELECT i.instance_id,
        COALESCE(i.env, '') AS env,
        COALESCE(i.alias_name, '') AS alias_name,
        COALESCE(i.instance_name, '') AS instance_name,
-       COALESCE(c.conn_name, '') AS conn_name,
-       c.mongo_uri_enc
+       i.login_path AS mongo_uri_enc
 FROM ${T_ASSET_INSTANCE} i
-JOIN ${T_ASSET_MONGO_CONN} c ON c.instance_id = i.instance_id
-WHERE i.type='mongodb'
-  AND i.is_active=1;
+WHERE i.type='mongo'
+  AND i.is_active=1
+  AND i.auth_mode='mongo_uri_aes'
+  AND i.login_path IS NOT NULL;
 "
 )
 

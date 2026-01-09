@@ -13,15 +13,16 @@ SELECT
   s.mongo_version,
   s.collect_status AS last_collect_status,
   s.error_msg
-FROM ops_inspection.snap_mongo_instance_storage s
+FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_INSTANCE_STORAGE} s
 JOIN (
   SELECT instance_id, MAX(stat_time) AS stat_time
-  FROM ops_inspection.snap_mongo_instance_storage
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_INSTANCE_STORAGE}
   GROUP BY instance_id
 ) ls ON s.instance_id = ls.instance_id AND s.stat_time = ls.stat_time
-JOIN ops_inspection.asset_instance a ON a.instance_id = s.instance_id
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a ON a.instance_id = s.instance_id
 WHERE a.is_active = 1
-  AND a.type = 'mongodb'
+  AND a.type = 'mongo'
+  AND a.auth_mode = 'mongo_uri_aes'
 ORDER BY s.stat_time DESC, a.env, a.instance_name;
 
 -- =============================
@@ -40,16 +41,17 @@ FROM (
     s.physical_total_bytes AS last_physical_bytes
   FROM (
     SELECT instance_id, MAX(stat_time) AS stat_time
-    FROM ops_inspection.snap_mongo_instance_storage
+    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_INSTANCE_STORAGE}
     GROUP BY instance_id
   ) t
-  JOIN ops_inspection.snap_mongo_instance_storage s
+  JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_INSTANCE_STORAGE} s
     ON s.instance_id = t.instance_id
    AND s.stat_time = t.stat_time
-  JOIN ops_inspection.asset_instance a
+  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON a.instance_id = t.instance_id
    AND a.is_active = 1
-   AND a.type = 'mongodb'
+   AND a.type = 'mongo'
+   AND a.auth_mode = 'mongo_uri_aes'
 ) inst
 GROUP BY inst.env
 ORDER BY last_env_logical_total_gb DESC, inst.env;
@@ -102,26 +104,27 @@ FROM (
     (last_rec.physical_total_bytes - prev_rec.physical_total_bytes) AS diff_physical_bytes
   FROM (
     SELECT instance_id, MAX(stat_time) AS last_time
-    FROM ops_inspection.snap_mongo_instance_storage
+    FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_INSTANCE_STORAGE}
     GROUP BY instance_id
   ) t
-  JOIN ops_inspection.snap_mongo_instance_storage last_rec
+  JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_INSTANCE_STORAGE} last_rec
     ON last_rec.instance_id = t.instance_id
    AND last_rec.stat_time = t.last_time
    AND last_rec.collect_status = 'ok'
-  LEFT JOIN ops_inspection.snap_mongo_instance_storage prev_rec
+  LEFT JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_INSTANCE_STORAGE} prev_rec
     ON prev_rec.instance_id = t.instance_id
    AND prev_rec.stat_time = (
          SELECT MAX(s2.stat_time)
-         FROM ops_inspection.snap_mongo_instance_storage s2
+         FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_INSTANCE_STORAGE} s2
          WHERE s2.instance_id = t.instance_id
            AND s2.stat_time < t.last_time
            AND s2.collect_status = 'ok'
        )
-  JOIN ops_inspection.asset_instance a
+  JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON a.instance_id = t.instance_id
    AND a.is_active = 1
-   AND a.type = 'mongodb'
+   AND a.type = 'mongo'
+   AND a.auth_mode = 'mongo_uri_aes'
 ) AS io
 ORDER BY
   last_logical_total_gb DESC,
@@ -140,14 +143,15 @@ SELECT
   cur.doc_count,
   ROUND(cur.logical_total_bytes / POW(1024, 3), 2) AS logical_total_gb,
   ROUND(cur.physical_total_bytes / POW(1024, 3), 2) AS physical_total_gb
-FROM ops_inspection.snap_mongo_collection_topn cur
-JOIN ops_inspection.asset_instance a
+FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_COLLECTION_TOPN} cur
+JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
   ON a.instance_id = cur.instance_id
  AND a.is_active = 1
- AND a.type = 'mongodb'
+ AND a.type = 'mongo'
+ AND a.auth_mode = 'mongo_uri_aes'
 WHERE cur.stat_time = (
   SELECT MAX(c2.stat_time)
-  FROM ops_inspection.snap_mongo_collection_topn c2
+  FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_COLLECTION_TOPN} c2
   WHERE c2.instance_id = cur.instance_id
     AND c2.db_name = cur.db_name
     AND c2.coll_name = cur.coll_name

@@ -1,17 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Initialize MongoDB assets into ops_inspection.asset_instance and asset_mongo_conn.
+# Initialize MongoDB assets into ops_inspection.asset_instance.
 #
 # Usage:
+#   MONGO_AES_KEY_HEX=... MONGO_AES_IV_HEX=... \
 #   OPS_META_LOGIN_PATH=ops_meta [OPS_META_DB=ops_inspection] [CONFIG_PATH=config/mongo-init.yaml] ./scripts/init_mongo_assets.sh
 
 OPS_META_LOGIN_PATH="${OPS_META_LOGIN_PATH:-}"
 OPS_META_DB="${OPS_META_DB:-}"
 CONFIG_PATH="${CONFIG_PATH:-config/mongo-init.yaml}"
+MONGO_AES_KEY_HEX="${MONGO_AES_KEY_HEX:-}"
+MONGO_AES_IV_HEX="${MONGO_AES_IV_HEX:-}"
 
 if [[ -z "$OPS_META_LOGIN_PATH" ]]; then
   echo "OPS_META_LOGIN_PATH is required (mysql_config_editor login-path for meta DB)" >&2
+  exit 1
+fi
+
+if [[ -z "$MONGO_AES_KEY_HEX" || -z "$MONGO_AES_IV_HEX" ]]; then
+  echo "MONGO_AES_KEY_HEX and MONGO_AES_IV_HEX are required for Mongo URI encryption" >&2
   exit 1
 fi
 
@@ -22,6 +30,7 @@ if [[ ! -f "$CONFIG_PATH" ]]; then
 fi
 
 command -v mysql >/dev/null || { echo "mysql client not found in PATH" >&2; exit 1; }
+command -v openssl >/dev/null || { echo "openssl not found in PATH" >&2; exit 1; }
 
 projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
@@ -168,6 +177,11 @@ parse_mongo_host_port() {
   printf "%s\t%s" "$host" "$port"
 }
 
+encrypt_mongo_uri() {
+  local uri="$1"
+  printf "%s" "$uri" | openssl enc -aes-256-cbc -base64 -K "$MONGO_AES_KEY_HEX" -iv "$MONGO_AES_IV_HEX"
+}
+
 records="$(parse_yaml "$CONFIG_PATH")"
 
 echo "Starting Mongo asset initialization from $CONFIG_PATH"
@@ -177,8 +191,7 @@ while IFS= read -r line; do
   env=""
   type=""
   is_active="1"
-  conn_name=""
-  mongo_uri_enc=""
+  mongo_uri=""
 
   for kv in $line; do
     key="${kv%%=*}"
@@ -190,8 +203,7 @@ while IFS= read -r line; do
       env)           env="$val" ;;
       type)          type="$val" ;;
       is_active)     is_active="$val" ;;
-      conn_name)     conn_name="$val" ;;
-      mongo_uri_enc) mongo_uri_enc="$val" ;;
+      mongo_uri)     mongo_uri="$val" ;;
     esac
   done
 
@@ -199,13 +211,13 @@ while IFS= read -r line; do
     continue
   fi
 
-  if [[ -n "$type" && "$type" != "mongodb" ]]; then
-    echo "[SKIP] instance_name=$instance_name type=$type (expect mongodb)" >&2
+  if [[ -n "$type" && "$type" != "mongo" ]]; then
+    echo "[SKIP] instance_name=$instance_name type=$type (expect mongo)" >&2
     continue
   fi
 
-  if [[ -z "$mongo_uri_enc" ]]; then
-    echo "[SKIP] Missing mongo_uri_enc for instance_name=$instance_name" >&2
+  if [[ -z "$mongo_uri" ]]; then
+    echo "[SKIP] Missing mongo_uri for instance_name=$instance_name" >&2
     continue
   fi
 
@@ -223,33 +235,20 @@ while IFS= read -r line; do
   env_sql="NULL"
   [[ -n "$env" ]] && env_sql="'$(sql_escape "$env")'"
 
-  conn_name_sql="NULL"
-  [[ -n "$conn_name" ]] && conn_name_sql="'$(sql_escape "$conn_name")'"
-
-  if [[ -z "$conn_name" ]]; then
-    conn_name="$instance_name"
-    conn_name_sql="'$(sql_escape "$conn_name")'"
-  fi
-
   if [[ -z "$env" ]]; then
     env_condition="env IS NULL"
   else
     env_condition="env='$(sql_escape "$env")'"
   fi
 
-  if [[ -z "$alias_name" ]]; then
-    alias_condition="(alias_name IS NULL OR alias_name='')"
-  else
-    alias_condition="alias_name='$(sql_escape "$alias_name")'"
-  fi
-
   host_val=""
   port_val=""
-  if [[ "$mongo_uri_enc" == mongodb* ]]; then
-    IFS=$'\t' read -r host_val port_val <<<"$(parse_mongo_host_port "$mongo_uri_enc")"
+  if [[ "$mongo_uri" == mongodb* ]]; then
+    IFS=$'\t' read -r host_val port_val <<<"$(parse_mongo_host_port "$mongo_uri")"
   fi
   if [[ -z "$host_val" ]]; then
-    host_val="-"
+    echo "[SKIP] Failed to parse host from mongo_uri for instance_name=$instance_name" >&2
+    continue
   fi
   if [[ -z "$port_val" ]]; then
     port_val="0"
@@ -257,9 +256,10 @@ while IFS= read -r line; do
 
   existing_row="$(mysql --login-path="$OPS_META_LOGIN_PATH" --batch --raw -N -D "$DB_NAME" -e "
 SELECT instance_id, COALESCE(login_path,'') FROM ${T_ASSET_INSTANCE}
-WHERE type='mongodb'
+WHERE type='mongo'
   AND ${env_condition}
-  AND ${alias_condition}
+  AND host='$(sql_escape "$host_val")'
+  AND port=${port_val}
   AND instance_name='$(sql_escape "$instance_name")'
 LIMIT 1;
 ")"
@@ -269,27 +269,43 @@ LIMIT 1;
   if [[ -n "$existing_row" ]]; then
     IFS=$'\t' read -r instance_id existing_login_path <<<"$existing_row"
 
+    enc_uri="$(encrypt_mongo_uri "$mongo_uri")"
+    if [[ -z "$enc_uri" ]]; then
+      echo "[SKIP] Encrypt mongo_uri failed for instance_name=$instance_name" >&2
+      continue
+    fi
+
     mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" -e "
 UPDATE ${T_ASSET_INSTANCE}
 SET is_active=${is_active},
-    login_path=${conn_name_sql},
+    login_path='$(sql_escape "$enc_uri")',
+    alias_name=${alias_sql},
+    env=${env_sql},
+    host='$(sql_escape "$host_val")',
+    port=${port_val},
     auth_mode='mongo_uri_aes'
 WHERE instance_id=${instance_id};
 "
     echo "[UPDATE] asset_instance instance_name=$instance_name env=${env:-null} alias=${alias_name:-null} instance_id=$instance_id"
   else
+    enc_uri="$(encrypt_mongo_uri "$mongo_uri")"
+    if [[ -z "$enc_uri" ]]; then
+      echo "[SKIP] Encrypt mongo_uri failed for instance_name=$instance_name" >&2
+      continue
+    fi
+
     insert_sql="
 INSERT INTO ${T_ASSET_INSTANCE}(
   type, instance_name, alias_name, env, host, port, auth_mode, login_path, is_active
 ) VALUES (
-  'mongodb',
+  'mongo',
   '$(sql_escape "$instance_name")',
   $alias_sql,
   $env_sql,
   '$(sql_escape "$host_val")',
   ${port_val},
   'mongo_uri_aes',
-  ${conn_name_sql},
+  '$(sql_escape "$enc_uri")',
   ${is_active}
 );
 SELECT LAST_INSERT_ID();
@@ -298,24 +314,6 @@ SELECT LAST_INSERT_ID();
     instance_id="$new_id"
     echo "[INSERT] asset_instance instance_name=$instance_name env=${env:-null} alias=${alias_name:-null} instance_id=$instance_id"
   fi
-
-  mongo_uri_enc_sql="'$(sql_escape "$mongo_uri_enc")'"
-
-  mongo_conn_sql="
-INSERT INTO ${T_ASSET_MONGO_CONN}(
-  instance_id, conn_name, mongo_uri_enc
-) VALUES (
-  ${instance_id},
-  ${conn_name_sql},
-  ${mongo_uri_enc_sql}
-)
-ON DUPLICATE KEY UPDATE
-  conn_name=VALUES(conn_name),
-  mongo_uri_enc=VALUES(mongo_uri_enc);
-"
-
-  mysql --login-path="$OPS_META_LOGIN_PATH" -D "$DB_NAME" -e "$mongo_conn_sql"
-  echo "[UPSERT] asset_mongo_conn instance_id=$instance_id conn_name=$conn_name"
 
 done <<< "$records"
 

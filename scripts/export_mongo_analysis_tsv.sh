@@ -44,7 +44,8 @@ JOIN (
 ) ls ON s.instance_id = ls.instance_id AND s.stat_time = ls.stat_time
 JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a ON a.instance_id = s.instance_id
 WHERE a.is_active = 1
-  AND a.type = 'mongodb'
+  AND a.type = 'mongo'
+  AND a.auth_mode = 'mongo_uri_aes'
 ORDER BY s.stat_time DESC, a.env, a.instance_name;
 SQL
 )" > "${OUT_DIR}/q1_instance_latest.tsv"
@@ -74,7 +75,8 @@ FROM (
   JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON a.instance_id = t.instance_id
    AND a.is_active = 1
-   AND a.type = 'mongodb'
+   AND a.type = 'mongo'
+   AND a.auth_mode = 'mongo_uri_aes'
 ) inst
 GROUP BY inst.env
 ORDER BY last_env_logical_total_gb DESC, inst.env;
@@ -148,7 +150,8 @@ FROM (
   JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON a.instance_id = t.instance_id
    AND a.is_active = 1
-   AND a.type = 'mongodb'
+   AND a.type = 'mongo'
+   AND a.auth_mode = 'mongo_uri_aes'
 ) AS io
 ORDER BY
   last_logical_total_gb DESC,
@@ -173,7 +176,8 @@ FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_COLLECTION_TOPN} cur
 JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
   ON a.instance_id = cur.instance_id
  AND a.is_active = 1
- AND a.type = 'mongodb'
+ AND a.type = 'mongo'
+ AND a.auth_mode = 'mongo_uri_aes'
 WHERE cur.stat_time = (
   SELECT MAX(c2.stat_time)
   FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_COLLECTION_TOPN} c2

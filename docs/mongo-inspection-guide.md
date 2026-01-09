@@ -6,8 +6,8 @@
 
 流程概览：
 
-1. 准备 `config/mongo-init.yaml`（只包含加密后的 URI）
-2. `scripts/init_mongo_assets.sh` 写入 `asset_instance` + `asset_mongo_conn`
+1. 准备 `config/mongo-init.yaml`（包含明文 URI）
+2. `scripts/init_mongo_assets.sh` 写入 `asset_instance`
 3. `scripts/run_mongo_inspection.sh` 解密 URI 并采集容量信息
 4. `sql/mongo_analysis.sql` 负责分析查询
 5. `scripts/export_mongo_analysis_tsv.sh` 导出 TSV
@@ -25,7 +25,7 @@
 
 ### 2.2 明文 URI 的加密方式
 
-`ops_inspection.asset_mongo_conn` 仅保存 `mongo_uri_enc`（Base64 + AES-256-CBC）：
+`ops_inspection.asset_instance.login_path` 仅保存 `mongo_uri_enc`（Base64 + AES-256-CBC）：
 
 ```
 printf "%s" "$MONGO_URI" | openssl enc -aes-256-cbc -base64 \
@@ -48,7 +48,13 @@ printf "%s" "$mongo_uri_enc" | openssl enc -d -aes-256-cbc -base64 \
 
 ## 3) Mongo 巡检字段说明
 
-### 3.1 snap_mongo_instance_storage
+### 3.1 asset_instance（Mongo 部分）
+
+- `type='mongo'`
+- `auth_mode='mongo_uri_aes'`
+- `login_path`: AES-256-CBC + Base64 加密后的 Mongo URI
+
+### 3.2 snap_mongo_instance_storage
 
 - `logical_data_bytes`: 非系统库数据大小之和
 - `logical_index_bytes`: 非系统库索引大小之和
@@ -58,7 +64,7 @@ printf "%s" "$mongo_uri_enc" | openssl enc -d -aes-256-cbc -base64 \
 - `collect_status`: ok / failed
 - `error_msg`: 采集失败原因
 
-### 3.2 snap_mongo_collection_topn
+### 3.3 snap_mongo_collection_topn
 
 - `db_name` / `coll_name`: 库/集合
 - `doc_count`: 文档数量
@@ -66,7 +72,7 @@ printf "%s" "$mongo_uri_enc" | openssl enc -d -aes-256-cbc -base64 \
 - `logical_total_bytes`: data + index
 - `physical_total_bytes`: storageSize + indexSize
 
-### 3.3 分析 SQL 字段说明
+### 3.4 分析 SQL 字段说明
 
 `mongo_analysis.sql` 中的 `diff_*_gb_fmt` 字段规则：
 
@@ -85,11 +91,12 @@ printf "%s" "$mongo_uri_enc" | openssl enc -d -aes-256-cbc -base64 \
 cp config/mongo-init.yaml.example config/mongo-init.yaml
 ```
 
-使用 openssl 先加密 URI，再填入 `mongo_uri_enc`。
+填写 `mongo_uri` 为明文 URI，脚本会在写入数据库时自动加密。
 
 ### Step 2: 录入 Mongo 资产
 
 ```
+MONGO_AES_KEY_HEX=... MONGO_AES_IV_HEX=... \
 OPS_META_LOGIN_PATH=ops_meta ./scripts/init_mongo_assets.sh
 ```
 
@@ -115,5 +122,6 @@ OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection \
 ### Step 5: 直接执行分析 SQL
 
 ```
-mysql --login-path=ops_meta -D ops_inspection < sql/mongo_analysis.sql
+source config/schema_env.sh
+envsubst < sql/mongo_analysis.sql | mysql --login-path=ops_meta -D "$OPS_INSPECTION_DB"
 ```

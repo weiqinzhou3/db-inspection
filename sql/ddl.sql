@@ -2,7 +2,6 @@
 -- schema & table logical mapping
 -- @schema OPS_INSPECTION_DB=ops_inspection
 -- @table ASSET_INSTANCE=asset_instance
--- @table ASSET_MONGO_CONN=asset_mongo_conn
 -- @table SNAP_MYSQL_INSTANCE_STORAGE=snap_mysql_instance_storage
 -- @table SNAP_MYSQL_TABLE_TOPN=snap_mysql_table_topn
 -- @table SNAP_MONGO_INSTANCE_STORAGE=snap_mongo_instance_storage
@@ -18,7 +17,7 @@ USE ops_inspection;
 -- Asset table: supports MySQL/Redis/Mongo assets without storing passwords
 CREATE TABLE IF NOT EXISTS asset_instance (
   instance_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  type ENUM('mysql', 'redis', 'mongodb') NOT NULL DEFAULT 'mysql',
+  type ENUM('mysql', 'redis', 'mongo', 'mongodb') NOT NULL DEFAULT 'mysql',
   instance_name VARCHAR(50) NOT NULL,
   alias_name VARCHAR(50) NULL,
   env ENUM('MOS', 'Purple', 'RTM', 'MIB2') DEFAULT NULL,
@@ -26,16 +25,17 @@ CREATE TABLE IF NOT EXISTS asset_instance (
   port INT NOT NULL,
   auth_mode ENUM('login_path', 'local_secret', 'secret_ref', 'password', 'mongo_uri_aes') NOT NULL DEFAULT 'login_path',
   username VARCHAR(50) NULL,
-  login_path VARCHAR(50) NULL,
+  login_path VARCHAR(1024) NULL,
   secret_ref VARCHAR(50) NULL,
   is_active TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- Asset table: add mongo URI auth mode if needed (safe to run repeatedly)
+-- Asset table: ensure mongo URI auth mode + longer login_path (safe to run repeatedly)
 ALTER TABLE asset_instance
-  MODIFY auth_mode ENUM('login_path', 'local_secret', 'secret_ref', 'password', 'mongo_uri_aes') NOT NULL DEFAULT 'login_path';
+  MODIFY auth_mode ENUM('login_path', 'local_secret', 'secret_ref', 'password', 'mongo_uri_aes') NOT NULL DEFAULT 'login_path',
+  MODIFY login_path VARCHAR(1024) NULL;
 
 -- MySQL instance storage snapshot table
 CREATE TABLE IF NOT EXISTS snap_mysql_instance_storage (
@@ -65,17 +65,6 @@ CREATE TABLE IF NOT EXISTS snap_mysql_table_topn (
   total_bytes BIGINT NOT NULL,
   rank_no INT NOT NULL,
   KEY idx_instance_time_rank (instance_id, stat_time, rank_no)
-);
-
--- Mongo asset connection table (encrypted URI only)
-CREATE TABLE IF NOT EXISTS asset_mongo_conn (
-  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  instance_id BIGINT NOT NULL,
-  conn_name VARCHAR(128) NOT NULL,
-  mongo_uri_enc TEXT NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uniq_instance (instance_id)
 );
 
 -- Mongo instance storage snapshot table
