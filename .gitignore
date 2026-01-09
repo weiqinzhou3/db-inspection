@@ -6,6 +6,8 @@ config/*password*
 config/*secret*
 config/mysql-init.yaml
 config/mysql-init.*
+config/mongo-init.yaml
+config/mongo-init.*
 config/schema_env.sh
 config/mail_env.sh
 out/*
