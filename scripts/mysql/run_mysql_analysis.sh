@@ -6,7 +6,7 @@ OPS_META_DB="${OPS_META_DB:-}"
 
 command -v mysql >/dev/null || { echo "mysql client not found in PATH" >&2; exit 1; }
 
-projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
   echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2

@@ -7,7 +7,7 @@ This guide walks you through running the MySQL inspection end to end.
 Install the following on the inspection machine:
 
 - MySQL client (`mysql`)
-- Python 3 + pip (for PyYAML used by `scripts/init_mysql_assets.sh`)
+- Python 3 + pip (if you want to extend YAML parsing)
 - `sendEmail` (or an equivalent CLI mail tool) available in `PATH`
 
 Configure a login-path for the meta DB:
@@ -36,7 +36,7 @@ Scripts rely on a generated mapping file from `sql/ddl.sql`:
 Create `ops_inspection` schema and tables using `sql/ddl.sql`:
 
 ```
-mysql --login-path=ops_meta -e "SOURCE sql/ddl.sql"
+mysql --login-path=ops_meta -e < sql/ddl.sql
 ```
 
 ## 5) Configure MySQL assets to inspect
@@ -44,10 +44,10 @@ mysql --login-path=ops_meta -e "SOURCE sql/ddl.sql"
 Copy the config template:
 
 ```
-cp config/mysql-init.yaml.example config/mysql-init.yaml
+cp config/mysql/mysql-init.yaml.example config/mysql/mysql-init.yaml
 ```
 
-Edit `config/mysql-init.yaml` fields:
+Edit `config/mysql/mysql-init.yaml` fields:
 
 - `env`: environment name (e.g., prod / staging)
 - `alias_name`: friendly alias for reports
@@ -63,7 +63,7 @@ Notes:
 Run the init script:
 
 ```
-OPS_META_LOGIN_PATH=ops_meta ./scripts/init_mysql_assets.sh
+OPS_META_LOGIN_PATH=ops_meta ./scripts/mysql/init_mysql_assets.sh
 ```
 
 This script will:
@@ -82,7 +82,7 @@ The inspection script:
 Run:
 
 ```
-OPS_META_LOGIN_PATH=ops_meta ./scripts/run_mysql_inspection.sh
+OPS_META_LOGIN_PATH=ops_meta ./scripts/mysql/run_mysql_inspection.sh
 ```
 
 ## 7) View analysis results in terminal
@@ -106,10 +106,10 @@ mysql --login-path=ops_meta -D ops_inspection < sql/analysis.sql
 
 ## 8) Export TSV analysis results
 
-This exports Q1~Q6 to TSV files under `out/mysql_analysis/`:
+This exports Q1~Q5 to TSV files under `out/mysql/analysis/`:
 
 ```
-OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/export_mysql_analysis_tsv.sh
+OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/mysql/export_mysql_analysis_tsv.sh
 ```
 
 Files generated:
@@ -117,9 +117,8 @@ Files generated:
 - `q1_failed_instances.tsv`
 - `q2_env_summary.tsv`
 - `q3_instance_last_vs_prev.tsv`
-- `q4_schema_top5.tsv`
-- `q5_table_top10.tsv`
-- `q6_table_diff_top10.tsv`
+- `q4_table_last.tsv`
+- `q5_table_diff.tsv`
 
 All capacity values in these TSVs are in **GB**.
 
@@ -142,10 +141,10 @@ You can set them via environment or a local `config/mail_env.sh` created from `c
 Run:
 
 ```
-./scripts/post_mysql_analysis_mail.sh
+./scripts/mysql/post_mysql_analysis_mail.sh
 ```
 
-Default subject is `[DB Inspection] MySQL Inspection Summary`. The body includes Q1~Q6 sections with a description and a table.
+Default subject is `[DB Inspection] MySQL Inspection Summary`. The body includes Q1~Q5 sections with a description and a table.
 
 ## 10) (Optional) Schedule daily runs
 
@@ -153,7 +152,7 @@ Example crontab (daily at 09:00):
 
 ```
 0 9 * * * cd /path/to/db_inspection && \
-  OPS_META_LOGIN_PATH=ops_meta ./scripts/run_mysql_inspection.sh && \
-  OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/export_mysql_analysis_tsv.sh && \
-  ./scripts/post_mysql_analysis_mail.sh
+  OPS_META_LOGIN_PATH=ops_meta ./scripts/mysql/run_mysql_inspection.sh && \
+  OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection ./scripts/mysql/export_mysql_analysis_tsv.sh && \
+  ./scripts/mysql/post_mysql_analysis_mail.sh
 ```

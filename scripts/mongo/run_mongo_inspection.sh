@@ -21,7 +21,7 @@ command -v mongo >/dev/null || { echo "mongo shell not found in PATH" >&2; exit 
 command -v openssl >/dev/null || { echo "openssl not found in PATH" >&2; exit 1; }
 
 projectDir="$(
-  cd "$(dirname "$0")/.."
+  cd "$(dirname "$0")/../.."
   pwd
 )"
 
@@ -41,7 +41,7 @@ echo "[INIT] T_ASSET_INSTANCE=${T_ASSET_INSTANCE}"
 echo "[INIT] T_SNAP_MONGO_INSTANCE_STORAGE=${T_SNAP_MONGO_INSTANCE_STORAGE}"
 echo "[INIT] T_SNAP_MONGO_COLLECTION_TOPN=${T_SNAP_MONGO_COLLECTION_TOPN}"
 
-if ! mysql --login-path="${OPS_META_LOGIN_PATH}" -e "SOURCE ${projectDir}/sql/ddl.sql" >/dev/null 2>&1; then
+if ! mysql --login-path="${OPS_META_LOGIN_PATH}" < ${projectDir}/sql/ddl.sql >/dev/null 2>&1; then
   echo "[ERROR] Failed to ensure schema/tables via sql/ddl.sql" >&2
   exit 1
 fi
@@ -98,7 +98,7 @@ while IFS=$'\t' read -r instance_id env alias_name instance_name mongo_uri_enc; 
   summary_rc=0
   if [[ -n "$uri" ]]; then
     set +e
-    summary_out="$(mongo "$uri" --quiet "${projectDir}/mongo_scripts/collect_instance_capacity.js" 2>&1)"
+    summary_out="$(mongo "$uri" --quiet "${projectDir}/sql/mongo/collect/collect_instance_capacity.js" 2>&1)"
     summary_rc=$?
     set -e
   else
@@ -119,7 +119,7 @@ while IFS=$'\t' read -r instance_id env alias_name instance_name mongo_uri_enc; 
   topn_rc=0
   if [[ -n "$uri" ]]; then
     set +e
-    topn_out="$(mongo "$uri" --quiet "${projectDir}/mongo_scripts/collect_collection_capacity.js" 2>&1)"
+    topn_out="$(mongo "$uri" --quiet "${projectDir}/sql/mongo/collect/collect_collection_capacity.js" 2>&1)"
     topn_rc=$?
     set -e
   else

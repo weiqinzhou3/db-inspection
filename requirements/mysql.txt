@@ -1,0 +1,6 @@
+# MySQL inspection dependencies
+
+- mysql client
+- mysql_config_editor
+- expect (for login-path automation)
+- bash (scripts)

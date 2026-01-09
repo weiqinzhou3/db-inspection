@@ -1,0 +1,5 @@
+# MongoDB inspection dependencies
+
+- mongo shell (compatible with MongoDB 3.6+)
+- openssl (AES-256-CBC for URI encryption/decryption)
+- bash (scripts)

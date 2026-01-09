@@ -4,7 +4,7 @@ set -euo pipefail
 
 # projectDir = 当前脚本所在目录的上一级（即仓库根目录）
 projectDir=$(
-  cd "$(dirname "$0")/.."
+  cd "$(dirname "$0")/../.."
   pwd
 )
 
@@ -22,7 +22,7 @@ fi
 source "${projectDir}/config/schema_env.sh"
 
 # 所有 TSV 和临时 HTML 都放在这里
-OUT_DIR="${projectDir}/out/mysql_analysis"
+OUT_DIR="${projectDir}/out/mysql/analysis"
 mkdir -p "${OUT_DIR}"
 
 MAIL_HTML="${OUT_DIR}/mail.html"

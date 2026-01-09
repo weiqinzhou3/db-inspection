@@ -6,11 +6,11 @@
 
 流程概览：
 
-1. 准备 `config/mongo-init.yaml`（包含明文 URI）
-2. `scripts/init_mongo_assets.sh` 写入 `asset_instance`
-3. `scripts/run_mongo_inspection.sh` 解密 URI 并采集容量信息
-4. `sql/mongo_analysis.sql` 负责分析查询
-5. `scripts/export_mongo_analysis_tsv.sh` 导出 TSV
+1. 准备 `config/mongo/mongo-init.yaml`（包含明文 URI）
+2. `scripts/mongo/init_mongo_assets.sh` 写入 `asset_instance`
+3. `scripts/mongo/run_mongo_inspection.sh` 解密 URI 并采集容量信息
+4. `sql/mongo/analysis/mongo_analysis.sql` 负责分析查询
+5. `scripts/mongo/export_mongo_analysis_tsv.sh` 导出 TSV
 
 ## 2) 配置与安全
 
@@ -74,7 +74,7 @@ printf "%s" "$mongo_uri_enc" | openssl enc -d -aes-256-cbc -base64 \
 
 ### 3.4 分析 SQL 字段说明
 
-`mongo_analysis.sql` 中的 `diff_*_gb_fmt` 字段规则：
+`sql/mongo/analysis/mongo_analysis.sql` 中的 `diff_*_gb_fmt` 字段规则：
 
 - > 0: `+X.Y`
 - < 0: `-X.Y`
@@ -88,7 +88,7 @@ printf "%s" "$mongo_uri_enc" | openssl enc -d -aes-256-cbc -base64 \
 ### Step 1: 准备配置
 
 ```
-cp config/mongo-init.yaml.example config/mongo-init.yaml
+cp config/mongo/mongo-init.yaml.example config/mongo/mongo-init.yaml
 ```
 
 填写 `mongo_uri` 为明文 URI，脚本会在写入数据库时自动加密。
@@ -97,7 +97,7 @@ cp config/mongo-init.yaml.example config/mongo-init.yaml
 
 ```
 MONGO_AES_KEY_HEX=... MONGO_AES_IV_HEX=... \
-OPS_META_LOGIN_PATH=ops_meta ./scripts/init_mongo_assets.sh
+OPS_META_LOGIN_PATH=ops_meta ./scripts/mongo/init_mongo_assets.sh
 ```
 
 该脚本只写入加密 URI，不会解密。
@@ -107,21 +107,21 @@ OPS_META_LOGIN_PATH=ops_meta ./scripts/init_mongo_assets.sh
 ```
 MONGO_AES_KEY_HEX=... MONGO_AES_IV_HEX=... \
 OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection \
-./scripts/run_mongo_inspection.sh
+./scripts/mongo/run_mongo_inspection.sh
 ```
 
 ### Step 4: 导出分析 TSV
 
 ```
 OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection \
-./scripts/export_mongo_analysis_tsv.sh
+./scripts/mongo/export_mongo_analysis_tsv.sh
 ```
 
-输出目录：`out/mongo_analysis/`，包含 4 个 TSV 文件。
+输出目录：`out/mongo/analysis/`，包含 4 个 TSV 文件。
 
 ### Step 5: 直接执行分析 SQL
 
 ```
 source config/schema_env.sh
-envsubst < sql/mongo_analysis.sql | mysql --login-path=ops_meta -D "$OPS_INSPECTION_DB"
+envsubst < sql/mongo/analysis/mongo_analysis.sql | mysql --login-path=ops_meta -D "$OPS_INSPECTION_DB"
 ```

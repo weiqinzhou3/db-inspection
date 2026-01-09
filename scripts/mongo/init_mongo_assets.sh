@@ -5,11 +5,11 @@ set -euo pipefail
 #
 # Usage:
 #   MONGO_AES_KEY_HEX=... MONGO_AES_IV_HEX=... \
-#   OPS_META_LOGIN_PATH=ops_meta [OPS_META_DB=ops_inspection] [CONFIG_PATH=config/mongo-init.yaml] ./scripts/init_mongo_assets.sh
+#   OPS_META_LOGIN_PATH=ops_meta [OPS_META_DB=ops_inspection] [CONFIG_PATH=...] ./scripts/mongo/init_mongo_assets.sh
 
 OPS_META_LOGIN_PATH="${OPS_META_LOGIN_PATH:-}"
 OPS_META_DB="${OPS_META_DB:-}"
-CONFIG_PATH="${CONFIG_PATH:-config/mongo-init.yaml}"
+CONFIG_PATH="${CONFIG_PATH:-}"
 MONGO_AES_KEY_HEX="${MONGO_AES_KEY_HEX:-}"
 MONGO_AES_IV_HEX="${MONGO_AES_IV_HEX:-}"
 
@@ -23,16 +23,26 @@ if [[ -z "$MONGO_AES_KEY_HEX" || -z "$MONGO_AES_IV_HEX" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$CONFIG_PATH" ]]; then
-  echo "Config file not found: $CONFIG_PATH" >&2
-  echo "Copy config/mongo-init.yaml.example to $CONFIG_PATH and fill values." >&2
-  exit 1
-fi
-
 command -v mysql >/dev/null || { echo "mysql client not found in PATH" >&2; exit 1; }
 command -v openssl >/dev/null || { echo "openssl not found in PATH" >&2; exit 1; }
 
-projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+if [[ -z "$CONFIG_PATH" ]]; then
+  if [[ -f "${projectDir}/config/mongo/mongo-init.yaml" ]]; then
+    CONFIG_PATH="${projectDir}/config/mongo/mongo-init.yaml"
+  elif [[ -f "${projectDir}/config/mongo-init.yaml" ]]; then
+    CONFIG_PATH="${projectDir}/config/mongo-init.yaml"
+  else
+    CONFIG_PATH="${projectDir}/config/mongo/mongo-init.yaml"
+  fi
+fi
+
+if [[ ! -f "$CONFIG_PATH" ]]; then
+  echo "Config file not found: $CONFIG_PATH" >&2
+  echo "Copy config/mongo/mongo-init.yaml.example to $CONFIG_PATH and fill values." >&2
+  exit 1
+fi
 
 if [[ ! -f "${projectDir}/config/schema_env.sh" ]]; then
   echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2

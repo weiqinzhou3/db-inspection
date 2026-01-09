@@ -6,20 +6,14 @@ set -euo pipefail
 #   - mysql client and mysql_config_editor available
 #
 # Usage:
-#   OPS_META_LOGIN_PATH=ops_meta [OPS_META_DB=ops_inspection] [CONFIG_PATH=config/mysql-init.yaml] ./scripts/init_mysql_assets.sh
+#   OPS_META_LOGIN_PATH=ops_meta [OPS_META_DB=ops_inspection] [CONFIG_PATH=...] ./scripts/mysql/init_mysql_assets.sh
 
 OPS_META_LOGIN_PATH="${OPS_META_LOGIN_PATH:-}"
 OPS_META_DB="${OPS_META_DB:-}"
-CONFIG_PATH="${CONFIG_PATH:-config/.mysql-init.yaml}"
+CONFIG_PATH="${CONFIG_PATH:-}"
 
 if [[ -z "$OPS_META_LOGIN_PATH" ]]; then
   echo "OPS_META_LOGIN_PATH is required (mysql_config_editor login-path for meta DB)" >&2
-  exit 1
-fi
-
-if [[ ! -f "$CONFIG_PATH" ]]; then
-  echo "Config file not found: $CONFIG_PATH" >&2
-  echo "Copy config/mysql-init.yaml.example to $CONFIG_PATH and fill values." >&2
   exit 1
 fi
 
@@ -27,7 +21,23 @@ command -v mysql >/dev/null || { echo "mysql client not found in PATH" >&2; exit
 command -v mysql_config_editor >/dev/null || { echo "mysql_config_editor not found in PATH" >&2; exit 1; }
 command -v expect >/dev/null || { echo "expect not found in PATH (required for mysql_config_editor automation)" >&2; exit 1; }
 
-projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+if [[ -z "$CONFIG_PATH" ]]; then
+  if [[ -f "${projectDir}/config/mysql/mysql-init.yaml" ]]; then
+    CONFIG_PATH="${projectDir}/config/mysql/mysql-init.yaml"
+  elif [[ -f "${projectDir}/config/mysql-init.yaml" ]]; then
+    CONFIG_PATH="${projectDir}/config/mysql-init.yaml"
+  else
+    CONFIG_PATH="${projectDir}/config/mysql/mysql-init.yaml"
+  fi
+fi
+
+if [[ ! -f "$CONFIG_PATH" ]]; then
+  echo "Config file not found: $CONFIG_PATH" >&2
+  echo "Copy config/mysql/mysql-init.yaml.example to $CONFIG_PATH and fill values." >&2
+  exit 1
+fi
 
 if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
   echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2

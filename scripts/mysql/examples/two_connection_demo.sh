@@ -19,7 +19,7 @@ topn_tsv="$tmp_dir/top20_tables.tsv"
 cleanup() { rm -rf "$tmp_dir"; }
 trap cleanup EXIT
 
-projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+projectDir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
   echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2
@@ -34,12 +34,12 @@ DB_NAME="${OPS_META_DB:-$OPS_INSPECTION_DB}"
 # Collect from inspected instance (read-only)
 {
   printf 'SET @instance_id:=%s;\n' "$INSTANCE_ID"
-  cat "$projectDir/sql/collect/instance_logical_summary.sql"
+  cat "$projectDir/sql/mysql/collect/instance_logical_summary.sql"
 } | mysql --login-path="$TARGET_LOGIN_PATH" --batch --raw -N >"$summary_tsv"
 
 {
   printf 'SET @instance_id:=%s;\n' "$INSTANCE_ID"
-  cat "$projectDir/sql/collect/top20_tables.sql"
+  cat "$projectDir/sql/mysql/collect/top20_tables.sql"
 } | mysql --login-path="$TARGET_LOGIN_PATH" --batch --raw -N >"$topn_tsv"
 
 # Load instance summary into meta DB

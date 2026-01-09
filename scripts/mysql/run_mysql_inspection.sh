@@ -14,7 +14,7 @@ OPS_META_DB="${OPS_META_DB:-}"
 
 # 项目根目录
 projectDir="$(
-  cd "$(dirname "$0")/.."
+  cd "$(dirname "$0")/../.."
   pwd
 )"
 
@@ -35,7 +35,7 @@ echo "[INIT] T_SNAP_MYSQL_INSTANCE_STORAGE=${T_SNAP_MYSQL_INSTANCE_STORAGE}"
 echo "[INIT] T_SNAP_MYSQL_TABLE_TOPN=${T_SNAP_MYSQL_TABLE_TOPN}"
 
 # 确保 schema / tables 存在
-if ! mysql --login-path="${OPS_META_LOGIN_PATH}" -e "SOURCE ${projectDir}/sql/ddl.sql" >/dev/null 2>&1; then
+if ! mysql --login-path="${OPS_META_LOGIN_PATH}" < ${projectDir}/sql/ddl.sql >/dev/null 2>&1; then
   echo "[ERROR] Failed to ensure schema/tables via sql/ddl.sql" >&2
   exit 1
 fi
@@ -77,7 +77,7 @@ while IFS=$'\t' read -r instance_id login_path; do
   summary_out="$(
     {
       printf 'SET @instance_id:=%s;\n' "${instance_id}"
-      cat "${projectDir}/sql/collect/instance_logical_summary.sql"
+      cat "${projectDir}/sql/mysql/collect/instance_logical_summary.sql"
     } | mysql --login-path="${login_path}" --batch --raw -N 2>&1
   )"
   summary_rc=$?
@@ -94,7 +94,7 @@ while IFS=$'\t' read -r instance_id login_path; do
   topn_out="$(
     {
       printf 'SET @instance_id:=%s;\n' "${instance_id}"
-      cat "${projectDir}/sql/collect/top_tables.sql"
+      cat "${projectDir}/sql/mysql/collect/top_tables.sql"
     } | mysql --login-path="${login_path}" --batch --raw -N 2>&1
   )"
   topn_rc=$?

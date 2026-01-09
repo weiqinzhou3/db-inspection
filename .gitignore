@@ -8,6 +8,10 @@ config/mysql-init.yaml
 config/mysql-init.*
 config/mongo-init.yaml
 config/mongo-init.*
+config/mysql/mysql-init.yaml
+config/mysql/mysql-init.*
+config/mongo/mongo-init.yaml
+config/mongo/mongo-init.*
 config/schema_env.sh
 config/mail_env.sh
 out/*
