@@ -1,0 +1,206 @@
+#!/bin/bash
+# 多表 MongoDB 巡检报告邮件脚本（适配 db-inspection 项目目录）
+set -euo pipefail
+
+# projectDir = 当前脚本所在目录的上一级（即仓库根目录）
+projectDir=$(
+  cd "$(dirname "$0")/../.."
+  pwd
+)
+
+if [ -f "${projectDir}/config/mail_env.sh" ]; then
+  # shellcheck disable=SC1091
+  . "${projectDir}/config/mail_env.sh"
+fi
+
+if [ ! -f "${projectDir}/config/schema_env.sh" ]; then
+  echo "FATAL: config/schema_env.sh not found. Please run: scripts/gen_schema_env.sh" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1091
+source "${projectDir}/config/schema_env.sh"
+
+# 所有 TSV 和临时 HTML 都放在这里
+OUT_DIR="${projectDir}/out/mongo/analysis"
+mkdir -p "${OUT_DIR}"
+
+MAIL_HTML="${OUT_DIR}/mail.html"
+
+# 收件人 / 发件人配置（必须通过环境或 config/mail_env.sh 提供）
+EMAIL_RECIVER="${EMAIL_RECIVER:?EMAIL_RECIVER is required (set env or config/mail_env.sh)}"
+EMAIL_SENDER="${EMAIL_SENDER:?EMAIL_SENDER is required (set env or config/mail_env.sh)}"
+EMAIL_USERNAME="${EMAIL_USERNAME:-${EMAIL_SENDER}}"
+EMAIL_PASSWORD="${EMAIL_PASSWORD:?EMAIL_PASSWORD is required (set env or config/mail_env.sh)}"
+EMAIL_SMTPHOST="${EMAIL_SMTPHOST:-smtp.qq.com}"
+
+# 只通 465：隐式 TLS (SMTPS)
+EMAIL_SMTPPORT="${EMAIL_SMTPPORT:-465}"
+SMTP_SERVER="${EMAIL_SMTPHOST}:${EMAIL_SMTPPORT}"
+
+# 邮件标题 / 发件人展示名
+EMAIL_TITLE="${EMAIL_TITLE:-[DB Inspection] MongoDB Inspection Summary}"
+EMAIL_FROMNAME="${EMAIL_FROMNAME:-DB Inspection}"
+
+# ========== 1. 配置 5 个表格的描述和对应 TSV 文件路径 ==========
+
+SECTION_TITLES=(
+  "1. Q1 - 失败实例（最新失败快照）"
+  "2. Q2 - 环境纬度：容量汇总对比"
+  "3. Q3 - 实例纬度：容量汇总对比"
+  "4. Q4 - 集合维度：最近一次巡检容量汇总"
+  "5. Q5 - 集合维度：容量汇总对比"
+)
+
+SECTION_FILES=(
+  "${OUT_DIR}/q1_instance_latest.tsv"
+  "${OUT_DIR}/q2_env_summary.tsv"
+  "${OUT_DIR}/q3_instance_last_vs_prev.tsv"
+  "${OUT_DIR}/q4_collection_latest_topn.tsv"
+  "${OUT_DIR}/q5_collection_diff.tsv"
+)
+
+# ========== 2. HTML 生成工具函数 ==========
+
+html_escape() {
+  local s="$1"
+  s=${s//&/&amp;}
+  s=${s//</&lt;}
+  s=${s//>/&gt;}
+  echo "$s"
+}
+
+init_mail_html() {
+  cat > "${MAIL_HTML}" <<EOF
+<html>
+  <body>
+    <p>Dear All,</p>
+    <br/>
+EOF
+}
+
+finish_mail_html() {
+  cat >> "${MAIL_HTML}" <<EOF
+    <br/>
+    <p>Best Regards!</p>
+  </body>
+</html>
+EOF
+}
+
+# 从一个 TSV 文件生成 HTML 表格
+# 规则：
+# - 第一行当表头
+# - 斑马线底色
+# - 所有 *_fmt 列中值为 +xx / -xx 的单元格标红加粗
+# - 所有包含 "status" 的列，如果值 != ok，标红加粗
+html_table_from_tsv() {
+  local tsv_file="$1"
+
+  if [ ! -s "${tsv_file}" ]; then
+    echo "<p><i>(no data)</i></p>"
+    return
+  fi
+
+  echo "<table border=\"2\" style=\"border-collapse:collapse;\" cellpadding=\"6\" cellspacing=\"1\">"
+
+  local line_no=0
+  local -a header cols
+
+  while IFS=$'\t' read -r -a cols; do
+    if [ $line_no -eq 0 ]; then
+      # 表头行
+      header=("${cols[@]}")
+      echo '<tr style="background-color:#f2f2f2;font-weight:bold;color:#000000;">'
+      for col in "${header[@]}"; do
+        printf '<th>%s</th>' "$(html_escape "$col")"
+      done
+      echo "</tr>"
+    else
+      # 数据行
+      if (( line_no % 2 == 0 )); then
+        echo '<tr bgcolor="#E6F2FF">'
+      else
+        echo '<tr>'
+      fi
+
+      local idx
+      for idx in "${!header[@]}"; do
+        local col_name="${header[$idx]}"
+        local cell=""
+        # 防止 cols 比 header 短时访问越界
+        if (( idx < ${#cols[@]} )); then
+          cell="${cols[$idx]}"
+        else
+          cell=""
+        fi
+        local esc_cell
+        esc_cell=$(html_escape "$cell")
+
+        # 异常高亮逻辑：
+        # 1) *_fmt 且值以 + / - 开头 → 红+粗
+        # 2) 包含 "status" 的列，如果值 != ok → 红+粗
+        if [[ "$col_name" == *_fmt ]] && [[ "$cell" == [+-]* ]]; then
+          printf '<td><font color="red"><b>%s</b></font></td>' "$esc_cell"
+        elif [[ "$col_name" == *status* ]] && [[ -n "$cell" && "$cell" != "ok" ]]; then
+          printf '<td><font color="red"><b>%s</b></font></td>' "$esc_cell"
+        else
+          printf '<td>%s</td>' "$esc_cell"
+        fi
+      done
+
+      echo "</tr>"
+    fi
+
+    line_no=$((line_no + 1))
+  done < "${tsv_file}"
+
+  echo "</table>"
+}
+
+# 输出一个 section：描述 + 表格
+append_section() {
+  local desc="$1"
+  local tsv_file="$2"
+
+  echo "    <p><b>${desc}</b></p>" >> "${MAIL_HTML}"
+  html_table_from_tsv "${tsv_file}" >> "${MAIL_HTML}"
+  echo "    <br/>" >> "${MAIL_HTML}"
+}
+
+# ========== 3. 发邮件（465 隐式 TLS：sendmail + openssl s_client） ==========
+send_mail() {
+  {
+    printf 'From: "%s" <%s>\n' "${EMAIL_FROMNAME:-Devops Platform}" "$EMAIL_SENDER"
+    printf 'To: %s\n' "$EMAIL_RECIVER"
+    printf 'Subject: %s\n' "$EMAIL_TITLE"
+    printf 'Date: %s\n' "$(date -R)"
+    printf 'MIME-Version: 1.0\n'
+    printf 'Content-Type: text/html; charset=UTF-8\n'
+    printf 'Content-Transfer-Encoding: 8bit\n'
+    printf '\n'
+    cat "${MAIL_HTML}"
+    printf '\n'
+  } | /usr/sbin/sendmail -t -f "$EMAIL_SENDER"
+}
+
+# ========== 4. 主流程 ==========
+
+MAIN() {
+  init_mail_html
+
+  local count=${#SECTION_TITLES[@]}
+  local i
+  for ((i=0; i<${count}; i++)); do
+    local title="${SECTION_TITLES[$i]}"
+    local file="${SECTION_FILES[$i]}"
+    append_section "${title}" "${file}"
+  done
+
+  finish_mail_html
+  send_mail
+
+  rm -f "${MAIL_HTML}"
+}
+
+MAIN

@@ -65,7 +65,20 @@ normalize_stat_time() {
 
 decrypt_mongo_uri() {
   local enc="$1"
-  printf "%s" "$enc" | tr -d '\r\n ' | openssl enc -d -aes-256-cbc -base64 -A -K "$MONGO_AES_KEY_HEX" -iv "$MONGO_AES_IV_HEX" 2>/dev/null
+  local cleaned out
+  cleaned="$(printf "%s" "$enc" | tr -d '\r\n\t ')"
+  if [[ -z "$cleaned" ]]; then
+    return 1
+  fi
+
+  out="$(printf "%s" "$cleaned" | openssl enc -d -aes-256-cbc -base64 -A -K "$MONGO_AES_KEY_HEX" -iv "$MONGO_AES_IV_HEX" 2>/dev/null)" || out=""
+  if [[ -z "$out" ]]; then
+    out="$(printf "%s\n" "$cleaned" | openssl enc -d -aes-256-cbc -base64 -K "$MONGO_AES_KEY_HEX" -iv "$MONGO_AES_IV_HEX" 2>/dev/null)" || return 1
+  fi
+  if [[ -z "$out" ]]; then
+    return 1
+  fi
+  printf "%s" "$out"
 }
 
 success=0

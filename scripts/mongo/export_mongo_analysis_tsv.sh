@@ -51,4 +51,8 @@ echo "exported Q3 to ${OUT_DIR}/q3_instance_last_vs_prev.tsv"
 render_sql "${projectDir}/sql/mongo/analysis/q4_collection_latest_topn.sql" | mysql "${MYSQL_OPTS[@]}" > "${OUT_DIR}/q4_collection_latest_topn.tsv"
 echo "exported Q4 to ${OUT_DIR}/q4_collection_latest_topn.tsv"
 
+# Q5
+render_sql "${projectDir}/sql/mongo/analysis/q5_collection_diff.sql" | mysql "${MYSQL_OPTS[@]}" > "${OUT_DIR}/q5_collection_diff.tsv"
+echo "exported Q5 to ${OUT_DIR}/q5_collection_diff.tsv"
+
 echo "All MongoDB analysis TSV exports completed."

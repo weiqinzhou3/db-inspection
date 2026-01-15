@@ -11,6 +11,7 @@
 3. `scripts/mongo/run_mongo_inspection.sh` 解密 URI 并采集容量信息
 4. `sql/mongo/analysis/mongo_analysis.sql` 负责分析查询
 5. `scripts/mongo/export_mongo_analysis_tsv.sh` 导出 TSV
+6. `scripts/mongo/post_mongo_analysis_mail.sh` 生成 HTML 邮件
 
 ## 2) 配置与安全
 
@@ -117,11 +118,28 @@ OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection \
 ./scripts/mongo/export_mongo_analysis_tsv.sh
 ```
 
-输出目录：`out/mongo/analysis/`，包含 4 个 TSV 文件。
+输出目录：`out/mongo/analysis/`，包含 5 个 TSV 文件。
+
+新增 Q5 后，输出文件为：
+
+- `q1_instance_latest.tsv`
+- `q2_env_summary.tsv`
+- `q3_instance_last_vs_prev.tsv`
+- `q4_collection_latest_topn.tsv`
+- `q5_collection_diff.tsv`
 
 ### Step 5: 直接执行分析 SQL
 
 ```
 source config/schema_env.sh
 envsubst < sql/mongo/analysis/mongo_analysis.sql | mysql --login-path=ops_meta -D "$OPS_INSPECTION_DB"
+```
+
+### Step 6: 生成 Mongo 巡检邮件
+
+```
+OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection \
+  ./scripts/mongo/export_mongo_analysis_tsv.sh
+
+./scripts/mongo/post_mongo_analysis_mail.sh > out/mongo/analysis/mongo_inspection_report.html
 ```
