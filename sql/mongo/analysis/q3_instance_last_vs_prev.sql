@@ -2,10 +2,6 @@ SELECT
   io.env,
   io.alias_name,
   io.instance_name,
-  io.host,
-  io.port,
-  io.last_stat_time,
-  io.prev_stat_time,
   ROUND(io.last_logical_bytes / POW(1024, 3), 2) AS last_logical_total_gb,
   ROUND(io.prev_logical_bytes / POW(1024, 3), 2) AS prev_logical_total_gb,
   CASE
@@ -25,7 +21,9 @@ SELECT
     WHEN io.diff_physical_bytes < 0
       THEN CONCAT('-', ROUND(ABS(io.diff_physical_bytes) / POW(1024, 3), 2))
     ELSE '0'
-  END AS diff_physical_total_gb_fmt
+  END AS diff_physical_total_gb_fmt,
+  io.last_stat_time,
+  io.prev_stat_time,
 FROM (
   SELECT
     CASE WHEN a.env IS NULL OR a.env = '' THEN '-' ELSE a.env END AS env,

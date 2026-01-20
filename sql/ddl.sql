@@ -33,9 +33,9 @@ CREATE TABLE IF NOT EXISTS asset_instance (
 );
 
 -- Asset table: ensure mongo URI auth mode + longer login_path (safe to run repeatedly)
-ALTER TABLE asset_instance
-  MODIFY auth_mode ENUM('login_path', 'local_secret', 'secret_ref', 'password', 'mongo_uri_aes') NOT NULL DEFAULT 'login_path',
-  MODIFY login_path VARCHAR(1024) NULL;
+-- ALTER TABLE asset_instance
+--   MODIFY auth_mode ENUM('login_path', 'local_secret', 'secret_ref', 'password', 'mongo_uri_aes') NOT NULL DEFAULT 'login_path',
+--   MODIFY login_path VARCHAR(1024) NULL;
 
 -- MySQL instance storage snapshot table
 CREATE TABLE IF NOT EXISTS snap_mysql_instance_storage (

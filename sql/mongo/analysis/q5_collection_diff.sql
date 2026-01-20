@@ -4,40 +4,6 @@ SELECT
   io.instance_name,
   io.db_name,
   io.coll_name,
-  io.last_stat_time,
-  io.prev_stat_time,
-  io.last_doc_count,
-  io.prev_doc_count,
-  CASE
-    WHEN io.prev_doc_count IS NULL THEN '-'
-    WHEN io.diff_doc_count > 0
-      THEN CONCAT('+', io.diff_doc_count)
-    WHEN io.diff_doc_count < 0
-      THEN CONCAT('-', ABS(io.diff_doc_count))
-    ELSE '0'
-  END AS diff_doc_count_fmt,
-  ROUND(io.last_data_bytes / POW(1024, 3), 2) AS last_data_gb,
-  ROUND(io.prev_data_bytes / POW(1024, 3), 2) AS prev_data_gb,
-  CASE
-    WHEN io.prev_doc_count IS NULL THEN '-'
-    WHEN io.diff_data_bytes > 0
-      THEN CONCAT('+', ROUND(io.diff_data_bytes / POW(1024, 3), 2))
-    WHEN io.diff_data_bytes < 0
-      THEN CONCAT('-', ROUND(ABS(io.diff_data_bytes) / POW(1024, 3), 2))
-    ELSE '0'
-  END AS diff_data_gb_fmt,
-  ROUND(io.last_index_bytes / POW(1024, 3), 2) AS last_index_gb,
-  ROUND(io.prev_index_bytes / POW(1024, 3), 2) AS prev_index_gb,
-  CASE
-    WHEN io.prev_doc_count IS NULL THEN '-'
-    WHEN io.diff_index_bytes > 0
-      THEN CONCAT('+', ROUND(io.diff_index_bytes / POW(1024, 3), 2))
-    WHEN io.diff_index_bytes < 0
-      THEN CONCAT('-', ROUND(ABS(io.diff_index_bytes) / POW(1024, 3), 2))
-    ELSE '0'
-  END AS diff_index_gb_fmt,
-  ROUND(io.last_total_bytes / POW(1024, 3), 2) AS last_total_gb,
-  ROUND(io.prev_total_bytes / POW(1024, 3), 2) AS prev_total_gb,
   CASE
     WHEN io.prev_doc_count IS NULL THEN '-'
     WHEN io.diff_total_bytes > 0
@@ -46,8 +12,26 @@ SELECT
       THEN CONCAT('-', ROUND(ABS(io.diff_total_bytes) / POW(1024, 3), 2))
     ELSE '0'
   END AS diff_total_gb_fmt,
+  CASE
+    WHEN io.prev_doc_count IS NULL THEN '-'
+    WHEN io.diff_doc_count > 0
+      THEN CONCAT('+', io.diff_doc_count)
+    WHEN io.diff_doc_count < 0
+      THEN CONCAT('-', ABS(io.diff_doc_count))
+    ELSE '0'
+  END AS diff_doc_count_fmt,
+  io.last_doc_count,
+  io.prev_doc_count,
+  ROUND(io.last_data_bytes / POW(1024, 3), 2) AS last_data_gb,
+  ROUND(io.prev_data_bytes / POW(1024, 3), 2) AS prev_data_gb,
+  ROUND(io.last_index_bytes / POW(1024, 3), 2) AS last_index_gb,
+  ROUND(io.prev_index_bytes / POW(1024, 3), 2) AS prev_index_gb,
+  ROUND(io.last_total_bytes / POW(1024, 3), 2) AS last_total_gb,
+  ROUND(io.prev_total_bytes / POW(1024, 3), 2) AS prev_total_gb,
   ROUND(io.last_physical_bytes / POW(1024, 3), 2) AS last_physical_gb,
-  ROUND(io.prev_physical_bytes / POW(1024, 3), 2) AS prev_physical_gb
+  ROUND(io.prev_physical_bytes / POW(1024, 3), 2) AS prev_physical_gb,
+  io.last_stat_time,
+  io.prev_stat_time
 FROM (
   SELECT
     CASE WHEN a.env IS NULL OR a.env = '' THEN '-' ELSE a.env END AS env,
