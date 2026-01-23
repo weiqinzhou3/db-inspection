@@ -279,7 +279,7 @@ SELECT i.instance_id,
        COALESCE(i.instance_name, '') AS instance_name,
        REPLACE(REPLACE(i.login_path, '\n', ''), '\r', '') AS mongo_uri_enc
 FROM ${T_ASSET_INSTANCE} i
-WHERE i.type='mongo'
+WHERE i.type='mongodb'
   AND i.is_active=1
   AND i.auth_mode='mongo_uri_aes'
   AND i.login_path IS NOT NULL;

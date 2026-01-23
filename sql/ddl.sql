@@ -17,7 +17,7 @@ USE ops_inspection;
 -- Asset table: supports MySQL/Redis/Mongo assets without storing passwords
 CREATE TABLE IF NOT EXISTS asset_instance (
   instance_id INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  type ENUM('mysql', 'redis', 'mongo', 'mongodb') NOT NULL DEFAULT 'mysql',
+  type ENUM('mysql', 'redis', 'mongodb') NOT NULL DEFAULT 'mysql',
   instance_name VARCHAR(50) NOT NULL,
   alias_name VARCHAR(50) NULL,
   env ENUM('MOS', 'Purple', 'RTM', 'MIB2') DEFAULT NULL,
