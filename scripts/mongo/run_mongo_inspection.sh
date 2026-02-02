@@ -260,9 +260,9 @@ EOF
   fi
 
   if [[ "${collect_status}" == "ok" ]]; then
-    ((success++))
+    ((++success))
   else
-    ((failed++))
+    ((++failed))
   fi
 
   echo "[RESULT] instance_id=${instance_id} => ${collect_status}"

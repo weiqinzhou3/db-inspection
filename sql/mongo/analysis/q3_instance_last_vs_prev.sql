@@ -23,7 +23,7 @@ SELECT
     ELSE '0'
   END AS diff_physical_total_gb_fmt,
   io.last_stat_time,
-  io.prev_stat_time,
+  io.prev_stat_time
 FROM (
   SELECT
     CASE WHEN a.env IS NULL OR a.env = '' THEN '-' ELSE a.env END AS env,
@@ -60,7 +60,7 @@ FROM (
   JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON a.instance_id = t.instance_id
    AND a.is_active = 1
-   AND a.type = 'mongo'
+   AND a.type = 'mongodb'
    AND a.auth_mode = 'mongo_uri_aes'
 ) AS io
 ORDER BY

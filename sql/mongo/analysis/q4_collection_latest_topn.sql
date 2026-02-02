@@ -11,7 +11,7 @@ FROM ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_COLLECTION_TOPN} cur
 JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
   ON a.instance_id = cur.instance_id
  AND a.is_active = 1
- AND a.type = 'mongo'
+ AND a.type = 'mongodb'
  AND a.auth_mode = 'mongo_uri_aes'
 WHERE cur.stat_time = (
   SELECT MAX(c2.stat_time)

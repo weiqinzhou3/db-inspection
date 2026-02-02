@@ -97,7 +97,8 @@ cp config/mongo/mongo-init.yaml.example config/mongo/mongo-init.yaml
 ### Step 2: 录入 Mongo 资产
 
 ```
-MONGO_AES_KEY_HEX=... MONGO_AES_IV_HEX=... \
+MONGO_AES_KEY_HEX=3765323063323065613735363432333161373664643833616331636637303133 \
+MONGO_AES_IV_HEX=66382f4e654c734a2a732a7679675640 \
 OPS_META_LOGIN_PATH=ops_meta ./scripts/mongo/init_mongo_assets.sh
 ```
 
@@ -142,4 +143,16 @@ OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection \
   ./scripts/mongo/export_mongo_analysis_tsv.sh
 
 ./scripts/mongo/post_mongo_analysis_mail.sh > out/mongo/analysis/mongo_inspection_report.html
+```
+
+### Step 7：计划任务
+
+```
+MONGO_AES_KEY_HEX=3765323063323065613735363432333161373664643833616331636637303133 \
+MONGO_AES_IV_HEX=66382f4e654c734a2a732a7679675640 \
+OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection \
+./scripts/mongo/run_mongo_inspection.sh && \
+OPS_META_LOGIN_PATH=ops_meta OPS_META_DB=ops_inspection \
+./scripts/mongo/export_mongo_analysis_tsv.sh && \
+./scripts/mongo/post_mongo_analysis_mail.sh
 ```

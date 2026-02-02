@@ -1,7 +1,6 @@
 SELECT
   io.env,
   io.alias_name,
-  io.instance_name,
   io.db_name,
   io.coll_name,
   CASE
@@ -77,7 +76,7 @@ FROM (
   JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON a.instance_id = t.instance_id
    AND a.is_active = 1
-   AND a.type = 'mongo'
+   AND a.type = 'mongodb'
    AND a.auth_mode = 'mongo_uri_aes'
   JOIN ${OPS_INSPECTION_DB}.${T_SNAP_MONGO_COLLECTION_TOPN} cur
     ON cur.instance_id = t.instance_id

@@ -16,6 +16,7 @@ JOIN (
 ) ls ON s.instance_id = ls.instance_id AND s.stat_time = ls.stat_time
 JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a ON a.instance_id = s.instance_id
 WHERE a.is_active = 1
-  AND a.type = 'mongo'
+  AND a.type = 'mongodb'
   AND a.auth_mode = 'mongo_uri_aes'
+  AND s.collect_status = 'failed'
 ORDER BY s.stat_time DESC, a.env, a.instance_name;

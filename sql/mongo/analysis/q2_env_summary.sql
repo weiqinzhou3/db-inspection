@@ -20,7 +20,7 @@ FROM (
   JOIN ${OPS_INSPECTION_DB}.${T_ASSET_INSTANCE} a
     ON a.instance_id = t.instance_id
    AND a.is_active = 1
-   AND a.type = 'mongo'
+   AND a.type = 'mongodb'
    AND a.auth_mode = 'mongo_uri_aes'
 ) inst
 GROUP BY inst.env
